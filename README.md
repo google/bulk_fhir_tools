@@ -16,7 +16,6 @@ Note: This is not an official Google product.
 <!---TODO(b/199179306): add godoc when public.--->
 <!---TODO(b/199179306): add links to code paths below.--->
 * `bcda/`: A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
-<!---TODO(b/199179306): update cmd/ path to root directory when the files are moved.--->
 * `cmd/bcda_fetch/`: A configurable example CLI program for fetching data from
   BCDA, and optionally saving to disk or sending to your FHIR Store. The program
   is highly configurable, and can support pulling incremental data only, among
@@ -25,7 +24,6 @@ Note: This is not an official Google product.
 * `fhirstore/`: A go helper package for uploading to FHIR store.
 * `fhir/`: A go package with some helpful utilities for working with FHIR claims
   data.
-<!---TODO(b/199179306): include analytics directory when added.--->
 
 ## bcda_fetch CLI Usage
 
