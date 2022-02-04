@@ -5,8 +5,6 @@ using `bcda_fetch` into GCP's FHIR Store and BigQuery. Once the data is flowing
 into BigQuery automatically, dashboards and notebooks can be used to explore
 and analyze the data.
 
-<!--TODO(b/199179306): provide a link to sample analytics notebook-->
-
 ## Set up FHIR Store
 
 First, a valid R4 FHIR store needs to be created. Follow the instructions
