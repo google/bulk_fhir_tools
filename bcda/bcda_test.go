@@ -150,15 +150,14 @@ func testStartBulkDataExport(t *testing.T, version Version) {
 	t.Run("full test with since and resource types", func(t *testing.T) {
 		token := "123"
 		resourceTypes := []ResourceType{Patient, ExplanationOfBenefit, Coverage}
-		// This time represents Thu Feb 4 21:00:57.012345600 PST 2009
-		since := time.Unix(0, 1233810057012345600)
+		since := time.Date(2013, 12, 9, 11, 0, 0, 123000000, time.UTC)
 
 		expectedPath := "/api/v1/Group/all/$export"
 		if version == V2 {
 			expectedPath = "/api/v2/Group/all/$export"
 		}
 		expectedAcceptValue := "application/fhir+json"
-		expectedSince := "2009-02-04T21:00:57.012-08:00"
+		expectedSince := "2013-12-09T11:00:00.123+00:00"
 		expectedTypes := "Patient,ExplanationOfBenefit,Coverage"
 		expectedJobID := "jobid"
 
