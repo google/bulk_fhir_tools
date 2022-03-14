@@ -1,6 +1,6 @@
 # Medical Claims Tools
 <a href="https://github.com/google/medical_claims_tools/actions">
-  <img src="https://github.com/google/medical_claims_tools/workflows/test/badge.svg" alt="GitHub Actions Build Status" />
+  <img src="https://github.com/google/medical_claims_tools/workflows/go_test/badge.svg" alt="GitHub Actions Build Status" />
 </a>
 <a href="https://godoc.org/github.com/google/medical_claims_tools">
   <img src="https://godoc.org/github.com/google/medical_claims_tools?status.svg" alt="Go Documentation" />

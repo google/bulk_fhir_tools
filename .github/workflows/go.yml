@@ -1,8 +1,8 @@
-name: test
+name: go_test
 on: [push, pull_request]
 jobs:
 
-  build:
+  go_test:
     name: Build and Test
     runs-on: ubuntu-latest
     steps:
