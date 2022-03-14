@@ -137,10 +137,6 @@ Note, do not run concurrent instances of fetch that use the same since file.
   ```
 
 To set up the `bcda_fetch` program to run periodically, take a look at the
-[docs](docs/periodic_gcp_ingestion.md).
-
-<!---TODO(b/199179306): Add additional documentation for setting up FHIR store
-for BigQuery streaming, how to set up a cron job with since_file, and how to
-use some of the out of box analytics notebooks.--->
+[documentation](docs/periodic_gcp_ingestion.md).
 
 
