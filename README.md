@@ -1,4 +1,10 @@
 # Medical Claims Tools
+<a href="https://github.com/google/medical_claims_tools/actions">
+  <img src="https://github.com/google/medical_claims_tools/workflows/test/badge.svg" alt="GitHub Actions Build Status" />
+</a>
+<a href="https://godoc.org/github.com/google/medical_claims_tools">
+  <img src="https://godoc.org/github.com/google/medical_claims_tools?status.svg" alt="Go Documentation" />
+</a>
 
 This repository contains a set of libraries, tools, notebooks and documentation
 for working with Medical Claims data. In particular, this contains an example
