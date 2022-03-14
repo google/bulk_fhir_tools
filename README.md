@@ -19,7 +19,6 @@ how to query and work with the data once it's in FHIR Store and BigQuery.
 Note: This is not an official Google product.
 
 ## Overview
-<!---TODO(b/199179306): add godoc when public.--->
 <!---TODO(b/199179306): add links to code paths below.--->
 * `bcda/`: A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
 * `cmd/bcda_fetch/`: A configurable example CLI program for fetching data from
@@ -62,9 +61,6 @@ client_secret) from one of the options
 
 If using with real data, please be sure to follow your organization's policies
 with respect to PHI.
-
-<!---TODO(b/199179306): Add a link to an expanded document page on setting
-up auto fhir store imports in GCP with BigQuery Analytics exports.-->
 
 * __Fetch all BCDA data for your ACO to local NDJSON files:__
 
