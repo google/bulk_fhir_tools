@@ -56,8 +56,7 @@ since_file` flag), you can add a line like:
 
 [Read more here](https://en.wikipedia.org/wiki/Cron#Overview) to learn about cron configurations.
 
-To upload to FHIR store, pass the GCP flags as described in the README.
-<!--TODO(b/199179306): add README link once on GitHub.-->
+To upload to FHIR store, pass the GCP flags as described in the [README](../README.md).
 
 Saving the crontab file and exiting it should be sufficient to install this new
 job and register it to be run at the next interval.
