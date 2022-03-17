@@ -145,7 +145,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 		if !jobStatus.IsComplete {
 			iter++
-			log.Infof("Job pending, progress: %d\n", jobStatus.PercentComplete)
+			log.Infof("BCDA Export job pending, progress: %d\n", jobStatus.PercentComplete)
 			time.Sleep(jobStatusPeriod)
 		}
 	}
@@ -155,6 +155,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	}
 
 	log.Infof("BCDA Job Finished. Transaction Time: %v", fhir.ToFHIRInstant(jobStatus.TransactionTime))
+	log.Infof("Begin BCDA data download and write out to disk.")
+	if *enableFHIRStore {
+		log.Infof("Data will also be uploaded to FHIR store based on provided parmaters.")
+	}
 
 	for r, urls := range jobStatus.ResultURLs {
 		for i, url := range urls {
