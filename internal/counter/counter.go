@@ -43,8 +43,8 @@ func (c *Counter) init() {
 
 // Increment adds one to the counter.
 func (c *Counter) Increment() {
-	c.incrementChan <- 1
 	c.wg.Add(1)
+	c.incrementChan <- 1
 }
 
 // CloseAndGetCount processes any remaining queued increments and returns the
