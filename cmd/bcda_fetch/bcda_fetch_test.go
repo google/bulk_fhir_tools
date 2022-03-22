@@ -633,6 +633,118 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	}
 }
 
+func TestMainWrapper_GetDataAuthRetry(t *testing.T) {
+	// This tests that if GetData returns unauthorized, mainWrapper attempts to
+	// re-authorize and try again at least 5 times.
+	cases := []struct {
+		name               string
+		apiVersion         bcda.Version
+		numRetriesBeforeOK int
+		wantError          error
+	}{
+		{
+			name:               "BCDAV1",
+			apiVersion:         bcda.V1,
+			numRetriesBeforeOK: 5,
+		},
+		{
+			name:               "BCDAV2",
+			apiVersion:         bcda.V2,
+			numRetriesBeforeOK: 5,
+		},
+		{
+			name:               "BCDAV1TooManyRetries",
+			apiVersion:         bcda.V1,
+			numRetriesBeforeOK: 6,
+			wantError:          bcda.ErrorUnauthorized,
+		},
+		{
+			name:               "BCDAV2TooManyRetries",
+			apiVersion:         bcda.V2,
+			numRetriesBeforeOK: 6,
+			wantError:          bcda.ErrorUnauthorized,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Declare test data:
+			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
+			exportEndpoint := "/api/v1/Group/all/$export"
+			jobsEndpoint := "/api/v1/jobs/1234"
+			if tc.apiVersion == bcda.V2 {
+				exportEndpoint = "/api/v2/Group/all/$export"
+				jobsEndpoint = "/api/v2/jobs/1234"
+			}
+			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+			var authCalled mutexCounter
+			var getDataCalled mutexCounter
+
+			// Setup BCDA test servers:
+
+			// A seperate resource server is needed during testing, so that we can send
+			// the jobsEndpoint response in the bcdaServer that includes a URL for the
+			// bcdaResourceServer in it.
+			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				getDataCalled.Increment()
+				if authCalled.Value() < tc.numRetriesBeforeOK+1 { // plus 1 because auth always called once at client init.
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				w.Write(file1Data)
+			}))
+			defer bcdaResourceServer.Close()
+
+			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/auth/token":
+					authCalled.Increment()
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"access_token": "token"}`))
+				case exportEndpoint:
+					w.Header()["Content-Location"] = []string{"some/info/1234"}
+					w.WriteHeader(http.StatusAccepted)
+				case jobsEndpoint:
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer bcdaServer.Close()
+
+			// Set flags for this test case:
+			outputPrefix := t.TempDir()
+			defer SaveFlags().Restore()
+			flag.Set("client_id", "id")
+			flag.Set("client_secret", "secret")
+			flag.Set("output_prefix", outputPrefix)
+			flag.Set("bcda_server_url", bcdaServer.URL)
+
+			if tc.apiVersion == bcda.V2 {
+				flag.Set("use_v2", "true")
+			}
+
+			// Run mainWrapper:
+			cfg := mainWrapperConfig{fhirStoreEndpoint: ""}
+			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
+				t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, tc.wantError)
+			}
+			if tc.wantError == nil {
+				wantCalls := tc.numRetriesBeforeOK + 1
+				if got := authCalled.Value(); got != wantCalls {
+					t.Errorf("mainWrapper: expected auth to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
+				}
+				if got := getDataCalled.Value(); got != wantCalls {
+					t.Errorf("mainWrapper: expected getDataCalled to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
+				}
+			}
+		})
+	}
+}
+
 type fhirStoreTestResource struct {
 	resourceID   string
 	resourceType string

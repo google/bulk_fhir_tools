@@ -163,7 +163,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	for r, urls := range jobStatus.ResultURLs {
 		for i, url := range urls {
 			filePrefix := fmt.Sprintf("%s_%s_%d", *outputPrefix, r, i)
-			r := getDataOrExit(cl, url, *clientID, *clientSecret)
+			r, err := getDataOrExit(cl, url, *clientID, *clientSecret)
+			if err != nil {
+				return err
+			}
 			defer r.Close()
 			if *rectify {
 				rectifyAndWrite(r, filePrefix, cfg)
@@ -196,18 +199,23 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	return nil
 }
 
-func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) io.ReadCloser {
+func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) (io.ReadCloser, error) {
 	r, err := cl.GetData(url)
-	if err == bcda.ErrorUnauthorized {
+	numRetries := 0
+	for errors.Is(err, bcda.ErrorUnauthorized) && numRetries < 5 {
+		time.Sleep(2 * time.Second)
+		log.Infof("Got Unauthorized from BCDA. Re-authenticating and trying again.")
 		if _, err := cl.Authenticate(clientID, clientSecret); err != nil {
-			log.Exitf("Error authenticating with API: %v", err)
+			return nil, fmt.Errorf("Error authenticating with API: %w", err)
 		}
 		r, err = cl.GetData(url)
+		numRetries++
 	}
+
 	if err != nil {
-		log.Exitf("Unable to GetData(%s): %v", url, err)
+		return nil, fmt.Errorf("Unable to GetData(%s) %w", url, err)
 	}
-	return r
+	return r, nil
 }
 
 func writeData(r io.Reader, filePrefix string) {
