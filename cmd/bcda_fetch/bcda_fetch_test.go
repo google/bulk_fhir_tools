@@ -51,6 +51,7 @@ func TestMainWrapper(t *testing.T) {
 		// set to true.
 		fhirStoreFailures    bool
 		noFailOnUploadErrors bool
+		bcdaJobID            string
 		wantError            error
 	}{
 		{
@@ -207,6 +208,53 @@ func TestMainWrapper(t *testing.T) {
 			noFailOnUploadErrors: true,
 			wantError:            nil,
 		},
+		{
+			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
+			rectify:         true,
+			enableFHIRStore: true,
+			apiVersion:      bcda.V2,
+			since:           "2006-01-02T15:04:05.000-07:00",
+			bcdaJobID:       "999",
+		},
+		{
+			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
+			rectify:         true,
+			enableFHIRStore: true,
+			apiVersion:      bcda.V1,
+			since:           "2006-01-02T15:04:05.000-07:00",
+			bcdaJobID:       "999",
+		},
+		{
+			name:                     "SinceFileProvidedWithBCDAV2WithBCDAJobId",
+			rectify:                  true,
+			enableFHIRStore:          true,
+			apiVersion:               bcda.V2,
+			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
+			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
+			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
+			bcdaJobID:                "999",
+		},
+		{
+			name:                     "SinceFileProvidedWithBCDAV1WithBCDAJobId",
+			rectify:                  true,
+			enableFHIRStore:          true,
+			apiVersion:               bcda.V1,
+			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
+			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
+			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
+			bcdaJobID:                "999",
+		},
+		{
+			name:                     "SinceFileEmptyProvidedWithBCDAV2WithBCDAJobId",
+			rectify:                  true,
+			enableFHIRStore:          true,
+			apiVersion:               bcda.V2,
+			sinceFileContent:         []byte(""),
+			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
+			bcdaJobID:                "999",
+		},
+		// TODO(b/226375559): see if we can generate some of the test cases above
+		// instead of having to spell them out explicitly.
 		// TODO(b/213365276): test that bcda V1 with rectify = true results in an
 		// error.
 	}
@@ -238,10 +286,14 @@ func TestMainWrapper(t *testing.T) {
 			}
 
 			exportEndpoint := "/api/v1/Group/all/$export"
-			jobsEndpoint := "/api/v1/jobs/1234"
+			expectedJobID := "1234"
+			if tc.bcdaJobID != "" {
+				expectedJobID = tc.bcdaJobID
+			}
+			jobsEndpoint := fmt.Sprintf("/api/v1/jobs/%s", expectedJobID)
 			if tc.apiVersion == bcda.V2 {
 				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = "/api/v2/jobs/1234"
+				jobsEndpoint = fmt.Sprintf("/api/v2/jobs/%s", expectedJobID)
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -267,12 +319,15 @@ func TestMainWrapper(t *testing.T) {
 			}))
 			defer bcdaResourceServer.Close()
 
+			var exportEndpointCalled mutexCounter
+
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token"}`))
 				case exportEndpoint:
+					exportEndpointCalled.Increment()
 					if tc.since != "" || tc.sinceFileLatestTimestamp != "" {
 						expectedSince := tc.since
 						if tc.since == "" {
@@ -315,6 +370,7 @@ func TestMainWrapper(t *testing.T) {
 			flag.Set("fhir_store_gcp_location", gcpLocation)
 			flag.Set("fhir_store_gcp_dataset_id", gcpDatasetID)
 			flag.Set("fhir_store_id", gcpFHIRStoreID)
+			flag.Set("bcda_job_id", tc.bcdaJobID)
 
 			if tc.enableFHIRStore {
 				flag.Set("enable_fhir_store", "true")
@@ -402,6 +458,12 @@ func TestMainWrapper(t *testing.T) {
 			if tc.rectify {
 				// Replace expected data with the rectified version of resource:
 				expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
+			}
+
+			if tc.bcdaJobID != "" {
+				if got := exportEndpointCalled.Value(); got > 0 {
+					t.Errorf("mainWrapper: when bcdaJobID is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+				}
 			}
 
 			for fileSuffix, wantData := range expectedFileSuffixToData {
