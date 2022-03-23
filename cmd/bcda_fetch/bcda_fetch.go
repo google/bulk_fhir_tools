@@ -67,7 +67,7 @@ const (
 	jobStatusPeriod = 5 * time.Second
 	// jobStatusTimeout indicates the maximum time that should be spend checking on
 	// a pending JobStatus.
-	jobStatusTimeout = time.Hour
+	jobStatusTimeout = 6 * time.Hour
 	// maxTokenSize represents the maximum newline delimited token size in bytes
 	// expected when parsing FHIR NDJSON.
 	maxTokenSize = 500 * 1024
