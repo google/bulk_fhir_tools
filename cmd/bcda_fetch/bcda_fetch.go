@@ -37,7 +37,7 @@ import (
 var (
 	clientID                  = flag.String("client_id", "", "BCDA API client ID (required)")
 	clientSecret              = flag.String("client_secret", "", "BCDA API client secret (required)")
-	outputPrefix              = flag.String("output_prefix", "claims/claims_data", "Data output prefix")
+	outputPrefix              = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
 	useV2                     = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
 	rectify                   = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR.")
 	enableFHIRStore           = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags must be set.")
@@ -98,6 +98,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		*fhirStoreGCPDatasetID == "" ||
 		*fhirStoreID == "") {
 		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
+	}
+
+	if *outputPrefix == "" && !*enableFHIRStore {
+		log.Warningln("outputPrefix is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
 	apiVersion := bcda.V1
@@ -166,7 +170,11 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	for r, urls := range jobStatus.ResultURLs {
 		for i, url := range urls {
-			filePrefix := fmt.Sprintf("%s_%s_%d", *outputPrefix, r, i)
+			filePrefix := ""
+			if *outputPrefix != "" {
+				filePrefix = fmt.Sprintf("%s_%s_%d", *outputPrefix, r, i)
+			}
+
 			r, err := getDataOrExit(cl, url, *clientID, *clientSecret)
 			if err != nil {
 				return err
@@ -236,9 +244,13 @@ func writeData(r io.Reader, filePrefix string) {
 }
 
 func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
-		w, err := os.OpenFile(fmt.Sprintf("%s.ndjson", filePrefix), os.O_RDWR|os.O_CREATE, 0755)
-	if err != nil {
-		log.Exitf("Unable to create output file: %v", err)
+	var w io.Writer = nil
+	if filePrefix != "" {
+		var err error
+		w, err = os.OpenFile(fmt.Sprintf("%s.ndjson", filePrefix), os.O_RDWR|os.O_CREATE, 0755)
+		if err != nil {
+			log.Exitf("Unable to create output file: %v", err)
+		}
 	}
 
 	uploader := newFHIRStoreUploader(cfg.fhirStoreEndpoint)
@@ -259,8 +271,10 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 			uploader.Upload(fhirOut)
 		}
 
-		if _, err := w.Write(fhirOut); err != nil {
-			log.Exitf("issue during file write: %v", err)
+		if w != nil {
+			if _, err := w.Write(fhirOut); err != nil {
+				log.Exitf("issue during file write: %v", err)
+			}
 		}
 	}
 	// Since there is only one sender goroutine (this one), it should be safe to

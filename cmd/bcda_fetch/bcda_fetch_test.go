@@ -52,7 +52,9 @@ func TestMainWrapper(t *testing.T) {
 		fhirStoreFailures    bool
 		noFailOnUploadErrors bool
 		bcdaJobID            string
-		wantError            error
+		// unsetOutputPrefix sets the outputPrefix to empty string if true.
+		unsetOutputPrefix bool
+		wantError         error
 	}{
 		{
 			name:            "RectifyEnabledWithoutFHIRStoreBCDAV1",
@@ -253,6 +255,61 @@ func TestMainWrapper(t *testing.T) {
 			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
 			bcdaJobID:                "999",
 		},
+		// Only testing cases with FHIR Store enabled for setting outputPrefix to ""
+		{
+			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV1",
+			rectify:           true,
+			enableFHIRStore:   true,
+			apiVersion:        bcda.V1,
+			unsetOutputPrefix: true,
+		},
+		{
+			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV2",
+			rectify:           true,
+			enableFHIRStore:   true,
+			apiVersion:        bcda.V2,
+			unsetOutputPrefix: true,
+		},
+		{
+			name:              "EmptyOutputPrefixWithSinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
+			rectify:           true,
+			enableFHIRStore:   true,
+			apiVersion:        bcda.V2,
+			since:             "2006-01-02T15:04:05.000-07:00",
+			bcdaJobID:         "999",
+			unsetOutputPrefix: true,
+		},
+		{
+			name:              "EmptyOutputPrefixWithSinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
+			rectify:           true,
+			enableFHIRStore:   true,
+			apiVersion:        bcda.V1,
+			since:             "2006-01-02T15:04:05.000-07:00",
+			bcdaJobID:         "999",
+			unsetOutputPrefix: true,
+		},
+		{
+			name:                     "EmptyOutputPrefixWithSinceFileProvidedWithBCDAV2WithBCDAJobIdWithFHIRStore",
+			rectify:                  true,
+			enableFHIRStore:          true,
+			apiVersion:               bcda.V2,
+			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
+			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
+			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
+			bcdaJobID:                "999",
+			unsetOutputPrefix:        true,
+		},
+		{
+			name:                     "EmptyOutputPrefixWithSinceFileProvidedWithBCDAV1WithBCDAJobIdWithFHIRStore",
+			rectify:                  true,
+			enableFHIRStore:          true,
+			apiVersion:               bcda.V1,
+			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
+			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
+			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
+			bcdaJobID:                "999",
+			unsetOutputPrefix:        true,
+		},
 		// TODO(b/226375559): see if we can generate some of the test cases above
 		// instead of having to spell them out explicitly.
 		// TODO(b/213365276): test that bcda V1 with rectify = true results in an
@@ -363,7 +420,9 @@ func TestMainWrapper(t *testing.T) {
 			defer SaveFlags().Restore()
 			flag.Set("client_id", "id")
 			flag.Set("client_secret", "secret")
-			flag.Set("output_prefix", outputPrefix)
+			if !tc.unsetOutputPrefix {
+				flag.Set("output_prefix", outputPrefix)
+			}
 			flag.Set("bcda_server_url", bcdaServer.URL)
 
 			flag.Set("fhir_store_gcp_project", gcpProject)
@@ -466,19 +525,21 @@ func TestMainWrapper(t *testing.T) {
 				}
 			}
 
-			for fileSuffix, wantData := range expectedFileSuffixToData {
-				fullPath := outputPrefix + fileSuffix
-				r, err := os.Open(fullPath)
-				if err != nil {
-					t.Errorf("unable to open file %s: %s", fullPath, err)
-				}
-				defer r.Close()
-				gotData, err := io.ReadAll(r)
-				if err != nil {
-					t.Errorf("error reading file %s: %v", fullPath, err)
-				}
-				if !cmp.Equal(normalizeJSON(t, gotData), normalizeJSON(t, wantData)) {
-					t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
+			if !tc.unsetOutputPrefix {
+				for fileSuffix, wantData := range expectedFileSuffixToData {
+					fullPath := outputPrefix + fileSuffix
+					r, err := os.Open(fullPath)
+					if err != nil {
+						t.Errorf("unable to open file %s: %s", fullPath, err)
+					}
+					defer r.Close()
+					gotData, err := io.ReadAll(r)
+					if err != nil {
+						t.Errorf("error reading file %s: %v", fullPath, err)
+					}
+					if !cmp.Equal(normalizeJSON(t, gotData), normalizeJSON(t, wantData)) {
+						t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
+					}
 				}
 			}
 
