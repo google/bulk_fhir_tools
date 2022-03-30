@@ -24,19 +24,16 @@ type FHIRStoreTestResource struct {
 
 // FHIRStoreServer creates a test FHIR store server that expects the provided
 // expectedResources. If it receives valid upload requests that do not include
-// elements from expectedResources, it will call t.Errorf with an error. There
-// is also a simple check to see that the number of valid upload calls with
-// expectedResources is the same size as the expectedResources slice. Note that
-// at the moment, this does not mean that Upload was called for every expected
-// resource, because only the count is checked at the moment. The test server's
-// URL is returned.
-// TODO(b/227361268): go beyond checking valid upload counts, and check that
-// each resource in expectedResources was actually uploaded.
+// elements from expectedResources, it will call t.Errorf with an error. If not
+// all of the resources in expectedResources are uploaded by the end of the test
+// errors are thrown. The test server's URL is returned by this function, and
+// is auto-closed at the end of the test.
 func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) string {
 	t.Helper()
-	var validResourcesUploaded mutexCounter
+	var expectedResourceWasUploadedMutex sync.Mutex
+	expectedResourceWasUploaded := make([]bool, len(expectedResources))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		expectedResource := validateURLAndMatchResource(req.URL.String(), expectedResources, projectID, location, datasetID, fhirStoreID)
+		expectedResource, expectedResourceIdx := validateURLAndMatchResource(req.URL.String(), expectedResources, projectID, location, datasetID, fhirStoreID)
 		if expectedResource == nil {
 			t.Errorf("FHIR Store Test server received an unexpected request at url: %s", req.URL.String())
 			w.WriteHeader(500)
@@ -53,42 +50,32 @@ func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, pr
 		if !cmp.Equal(NormalizeJSON(t, bodyContent), NormalizeJSON(t, expectedResource.Data)) {
 			t.Errorf("FHIR store test server received unexpected body content. got: %s, want: %s", bodyContent, expectedResource.Data)
 		}
-		validResourcesUploaded.Increment()
+
+		// Update the corresponding index in expectedResourceWasUploaded slice.
+		expectedResourceWasUploadedMutex.Lock()
+		expectedResourceWasUploaded[expectedResourceIdx] = true
+		expectedResourceWasUploadedMutex.Unlock()
+
 		w.WriteHeader(200) // Send OK status code.
 	}))
 
 	t.Cleanup(func() {
 		server.Close()
-		if got := validResourcesUploaded.Value(); got != len(expectedResources) {
-			t.Errorf("FHIR Store Test server did not receive expected number of valid uploads. got: %v, want: %v", got, len(expectedResources))
+		for idx, val := range expectedResourceWasUploaded {
+			if !val {
+				t.Errorf("FHIR store test server error. Expected resource was not uploaded. got: nil, want: %v", expectedResources[idx])
+			}
 		}
 	})
 	return server.URL
 }
 
-func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) *FHIRStoreTestResource {
-	for _, r := range expectedResources {
+func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) (*FHIRStoreTestResource, int) {
+	for idx, r := range expectedResources {
 		expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s?", projectID, location, datasetID, fhirStoreID, r.ResourceType, r.ResourceID)
 		if callURL == expectedPath {
-			return &r
+			return &r, idx
 		}
 	}
-	return nil
-}
-
-type mutexCounter struct {
-	m sync.Mutex
-	i int
-}
-
-func (mc *mutexCounter) Increment() {
-	mc.m.Lock()
-	defer mc.m.Unlock()
-	mc.i++
-}
-
-func (mc *mutexCounter) Value() int {
-	mc.m.Lock()
-	defer mc.m.Unlock()
-	return mc.i
+	return nil, 0
 }
