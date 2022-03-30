@@ -15,11 +15,11 @@
 package fhir_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhir"
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 )
 
 func TestRectifyBCDA(t *testing.T) {
@@ -102,28 +102,10 @@ func TestRectifyBCDA(t *testing.T) {
 		if err != tc.wantErr {
 			t.Errorf("RectifyBCDA(%s) unexpected error. got: %v, want: %v", tc.jsonIn, err, tc.wantErr)
 		}
-		normalizedWantJSON := normalizeJSON(t, tc.wantJSON)
-		normalizedGotJSON := normalizeJSON(t, got)
+		normalizedWantJSON := testhelpers.NormalizeJSON(t, tc.wantJSON)
+		normalizedGotJSON := testhelpers.NormalizeJSON(t, got)
 		if !cmp.Equal(normalizedGotJSON, normalizedWantJSON) {
 			t.Errorf("RectifyBCDA(%s) unexpected output. got: %s, want: %s", tc.jsonIn, normalizedGotJSON, normalizedWantJSON)
 		}
 	}
-}
-
-// normalizeJSON normalizes the input json string to look like how it would look
-// as if marshaled from a json.Marshal. In particular, this may reorder some
-// fields (e.g. json object keys are sorted alphabetically), but the json should
-// be equivalent.
-func normalizeJSON(t *testing.T, jsonIn []byte) []byte {
-	t.Helper()
-	var tmp interface{}
-	err := json.Unmarshal(jsonIn, &tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := json.Marshal(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return output
 }

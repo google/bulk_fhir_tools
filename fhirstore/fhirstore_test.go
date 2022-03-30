@@ -18,13 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhirstore"
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 )
 
 func TestUploadResource(t *testing.T) {
@@ -35,33 +34,18 @@ func TestUploadResource(t *testing.T) {
 	location := "us-east1"
 	datasetID := "datasetID"
 	fhirStoreID := "fhirstoreID"
-	expectedHeader := "application/fhir+json;charset=utf-8"
 
 	t.Run("ValidResponse", func(t *testing.T) {
-		expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s?", projectID, location, datasetID, fhirStoreID, resourceType, resourceID)
 		uploadResourceWithParams := fmt.Sprintf("UploadResource(%s, %s, %s, %s, %s)", inputJSON, projectID, location, datasetID, fhirStoreID)
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if req.URL.String() != expectedPath {
-				t.Errorf(uploadResourceWithParams+" made request with unexpected path. got: %v, want: %v", req.URL.String(), expectedPath)
-			}
-			if req.Method != http.MethodPut {
-				t.Errorf(uploadResourceWithParams+" calls unexpected method: %s", req.Method)
-			}
-			if contentHeader := req.Header.Get("Content-Type"); contentHeader != expectedHeader {
-				t.Errorf(uploadResourceWithParams+" unexpected header got: %v, want: %v", contentHeader, expectedHeader)
-			}
+		serverURL := testhelpers.FHIRStoreServer(
+			t,
+			[]testhelpers.FHIRStoreTestResource{{ResourceID: resourceID, ResourceType: resourceType, Data: inputJSON}},
+			projectID,
+			location,
+			datasetID,
+			fhirStoreID)
 
-			bodyContent, err := ioutil.ReadAll(req.Body)
-			if err != nil {
-				t.Error(err)
-			}
-			if !cmp.Equal(bodyContent, inputJSON) {
-				t.Errorf(uploadResourceWithParams+" sends unexpected body. got: %v, want: %v", bodyContent, inputJSON)
-			}
-			w.WriteHeader(200) // Send OK status code.
-		}))
-
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), serverURL)
 		if err != nil {
 			t.Errorf(uploadResourceWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
@@ -75,6 +59,7 @@ func TestUploadResource(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(500)
 		}))
+		defer server.Close()
 
 		c, err := fhirstore.NewClient(context.Background(), server.URL)
 		if err != nil {

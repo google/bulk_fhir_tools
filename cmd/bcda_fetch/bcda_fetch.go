@@ -39,8 +39,8 @@ var (
 	clientSecret              = flag.String("client_secret", "", "BCDA API client secret (required)")
 	outputPrefix              = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
 	useV2                     = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
-	rectify                   = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR.")
-	enableFHIRStore           = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags must be set.")
+	rectify                   = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
+	enableFHIRStore           = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
 	maxFHIRStoreUploadWorkers = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
 	fhirStoreGCPProject       = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
 	fhirStoreGCPLocation      = flag.String("fhir_store_gcp_location", "", "The GCP location of the FHIR Store.")
@@ -59,8 +59,9 @@ var (
 var fhirStoreUploadErrorCounter *counter.Counter
 
 var (
-	errInvalidSince   = errors.New("invalid since timestamp")
-	errUploadFailures = errors.New("fhir store upload failures")
+	errInvalidSince            = errors.New("invalid since timestamp")
+	errUploadFailures          = errors.New("fhir store upload failures")
+	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
 )
 
 const (
@@ -98,6 +99,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		*fhirStoreGCPDatasetID == "" ||
 		*fhirStoreID == "") {
 		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
+	}
+
+	if *enableFHIRStore && !*rectify {
+		return errMustRectifyForFHIRStore
 	}
 
 	if *outputPrefix == "" && !*enableFHIRStore {

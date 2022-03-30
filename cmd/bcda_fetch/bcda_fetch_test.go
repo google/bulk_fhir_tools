@@ -15,7 +15,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +25,8 @@ import (
 	"path"
 	"sync"
 	"testing"
+
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
 	"github.com/google/go-cmp/cmp"
@@ -54,7 +55,11 @@ func TestMainWrapper(t *testing.T) {
 		bcdaJobID            string
 		// unsetOutputPrefix sets the outputPrefix to empty string if true.
 		unsetOutputPrefix bool
-		wantError         error
+		// disableFHIRStoreUploadChecks will disable the portion of the test that
+		// checks for FHIR store uploads, even if fhir store uploads is set to true.
+		// This is needed for only some subtests.
+		disableFHIRStoreUploadChecks bool
+		wantError                    error
 	}{
 		{
 			name:            "RectifyEnabledWithoutFHIRStoreBCDAV1",
@@ -92,21 +97,26 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore: false,
 			apiVersion:      bcda.V2,
 		},
+
+		// Currently, rectify must be enabled to upload to FHIR store.
 		{
-			name:            "RectifyDisabledWithFHIRStoreBCDAV1",
-			rectify:         false,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V1,
+			name:                         "RectifyDisabledWithFHIRStoreBCDAV1",
+			rectify:                      false,
+			enableFHIRStore:              true,
+			apiVersion:                   bcda.V1,
+			disableFHIRStoreUploadChecks: true,
+			wantError:                    errMustRectifyForFHIRStore,
 		},
 		{
-			name:            "RectifyDisabledWithFHIRStoreBCDAV2",
-			rectify:         false,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V2,
+			name:                         "RectifyDisabledWithFHIRStoreBCDAV2",
+			rectify:                      false,
+			enableFHIRStore:              true,
+			apiVersion:                   bcda.V2,
+			disableFHIRStoreUploadChecks: true,
+			wantError:                    errMustRectifyForFHIRStore,
 		},
-		// Only testing since with rectify and fhir store always enabled across
-		// BCDA versions because that's the only relevant param for these test
-		// cases.
+		// For the Since and SinceFile test cases, BCDA Version is the primary
+		// parameter to vary. The others are set to useful values and not varied.
 		{
 			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV2",
 			rectify:         true,
@@ -122,17 +132,12 @@ func TestMainWrapper(t *testing.T) {
 			since:           "2006-01-02T15:04:05.000-07:00",
 		},
 		{
-			name:            "InvalidSince",
-			rectify:         true,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V1,
-			since:           "2006-01-02",
-			wantError:       errInvalidSince,
+			name:       "InvalidSince",
+			rectify:    true,
+			apiVersion: bcda.V1,
+			since:      "2006-01-02",
+			wantError:  errInvalidSince,
 		},
-		// Only testing since with rectify and fhir store always enabled across
-		// BCDA versions because that's the only relevant param for these test
-		// cases. Note some additional since file test cases are in another test
-		// below.
 		{
 			name:                     "SinceFileProvidedWithBCDAV2",
 			rectify:                  true,
@@ -170,7 +175,6 @@ func TestMainWrapper(t *testing.T) {
 		{
 			name:             "InvalidSinceFileInstant",
 			rectify:          true,
-			enableFHIRStore:  true,
 			apiVersion:       bcda.V1,
 			sinceFileContent: []byte("2006-01-02\n"),
 			wantError:        errInvalidSince,
@@ -464,37 +468,39 @@ func TestMainWrapper(t *testing.T) {
 
 			fhirStoreEndpoint := ""
 			if tc.enableFHIRStore {
-				fhirStoreTests := []fhirStoreTestResource{
+				fhirStoreTests := []testhelpers.FHIRStoreTestResource{
 					{
-						resourceID:   "PatientID",
-						resourceType: "Patient",
-						data:         file1Data,
+						ResourceID:   "PatientID",
+						ResourceType: "Patient",
+						Data:         file1Data,
 					},
 					{
-						resourceID:   "EOBID",
-						resourceType: "ExplanationOfBenefit",
-						data:         file3Data,
+						ResourceID:   "EOBID",
+						ResourceType: "ExplanationOfBenefit",
+						Data:         file3Data,
 					},
 				}
 
 				if tc.rectify {
-					fhirStoreTests = append(fhirStoreTests, fhirStoreTestResource{
-						resourceID:   "CoverageID",
-						resourceType: "Coverage",
-						data:         file2DataRectified,
+					fhirStoreTests = append(fhirStoreTests, testhelpers.FHIRStoreTestResource{
+						ResourceID:   "CoverageID",
+						ResourceType: "Coverage",
+						Data:         file2DataRectified,
 					})
 				} else {
-					fhirStoreTests = append(fhirStoreTests, fhirStoreTestResource{
-						resourceID:   "CoverageID",
-						resourceType: "Coverage",
-						data:         file2Data,
+					fhirStoreTests = append(fhirStoreTests, testhelpers.FHIRStoreTestResource{
+						ResourceID:   "CoverageID",
+						ResourceType: "Coverage",
+						Data:         file2Data,
 					})
 				}
 
 				if tc.fhirStoreFailures {
-					fhirStoreEndpoint = testFHIRStoreServerAlwaysFails(t)
+					fhirStoreEndpoint = serverAlwaysFails(t)
 				} else {
-					fhirStoreEndpoint = testFHIRStoreServer(t, fhirStoreTests, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+					if !tc.disableFHIRStoreUploadChecks {
+						fhirStoreEndpoint = testhelpers.FHIRStoreServer(t, fhirStoreTests, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+					}
 				}
 			}
 
@@ -537,7 +543,7 @@ func TestMainWrapper(t *testing.T) {
 					if err != nil {
 						t.Errorf("error reading file %s: %v", fullPath, err)
 					}
-					if !cmp.Equal(normalizeJSON(t, gotData), normalizeJSON(t, wantData)) {
+					if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, wantData)) {
 						t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
 					}
 				}
@@ -870,75 +876,14 @@ func TestMainWrapper_GetDataAuthRetry(t *testing.T) {
 	}
 }
 
-type fhirStoreTestResource struct {
-	resourceID   string
-	resourceType string
-	data         []byte
-}
-
-// testFHIRStoreServerAlwaysFails returns a FHIR store server that always fails
-// uploads.
-func testFHIRStoreServerAlwaysFails(t *testing.T) string {
+// serverAlwaysFails returns a server that always fails with a 500 error code.
+func serverAlwaysFails(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
-}
-
-func testFHIRStoreServer(t *testing.T, expectedResources []fhirStoreTestResource, projectID, location, datasetID, fhirStoreID string) string {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		expectedResource := validateURLAndMatchResource(req.URL.String(), expectedResources, projectID, location, datasetID, fhirStoreID)
-		if expectedResource == nil {
-			t.Errorf("FHIR Store Test server received an unexpected request at url: %s", req.URL.String())
-			w.WriteHeader(500)
-			return
-		}
-		if req.Method != http.MethodPut {
-			t.Errorf("FHIR Store test server unexpected HTTP method. got: %v, want: %v", req.Method, http.MethodPut)
-		}
-
-		bodyContent, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			t.Errorf("FHIR Store test server error reading body content for URL: %s", req.URL.String())
-		}
-		if !cmp.Equal(normalizeJSON(t, bodyContent), normalizeJSON(t, expectedResource.data)) {
-			t.Errorf("FHIR store test server received unexpected body content. got: %s, want: %s", bodyContent, expectedResource.data)
-		}
-		w.WriteHeader(200) // Send OK status code.
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
-}
-
-func validateURLAndMatchResource(callURL string, expectedResources []fhirStoreTestResource, projectID, location, datasetID, fhirStoreID string) *fhirStoreTestResource {
-	for _, r := range expectedResources {
-		expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s?", projectID, location, datasetID, fhirStoreID, r.resourceType, r.resourceID)
-		if callURL == expectedPath {
-			return &r
-		}
-	}
-	return nil
-}
-
-// normalizeJSON normalizes the input json string to look like how it would look
-// as if marshaled from a json.Marshal. In particular, this may reorder some
-// fields (e.g. json object keys are sorted alphabetically), but the json should
-// be equivalent.
-func normalizeJSON(t *testing.T, jsonIn []byte) []byte {
-	t.Helper()
-	var tmp interface{}
-	err := json.Unmarshal(jsonIn, &tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := json.Marshal(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return output
 }
 
 type mutexCounter struct {
