@@ -18,12 +18,10 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"flag"
@@ -258,7 +256,7 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		}
 	}
 
-	uploader := newFHIRStoreUploader(cfg.fhirStoreEndpoint)
+	uploader := fhirstore.NewUploader(cfg.fhirStoreEndpoint, *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID, *maxFHIRStoreUploadWorkers, fhirStoreUploadErrorCounter)
 
 	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
@@ -334,68 +332,6 @@ func getSince() (time.Time, error) {
 	}
 
 	return parsedSince, nil
-}
-
-// TODO(b/211487995): consider factoring out this logic in the future if it
-// would be useful.
-// fhirStoreUploader is a simple convinience wrapper for concurrent upload to
-// FHIR store logic.
-type fhirStoreUploader struct {
-	fhirStoreEndpoint string
-	fhirJSONs         chan string
-	wg                *sync.WaitGroup
-}
-
-func newFHIRStoreUploader(fhirStoreEndpoint string) *fhirStoreUploader {
-	return &fhirStoreUploader{fhirStoreEndpoint: fhirStoreEndpoint}
-}
-
-func (f *fhirStoreUploader) init() {
-	f.fhirJSONs = make(chan string, 100)
-	f.wg = &sync.WaitGroup{}
-
-	for i := 0; i < *maxFHIRStoreUploadWorkers; i++ {
-		go uploadWorker(f.fhirJSONs, f.fhirStoreEndpoint, f.wg)
-	}
-}
-
-// Upload uploads the provided FHIR JSON to FHIR store.
-func (f *fhirStoreUploader) Upload(fhirJSON []byte) {
-	if f.fhirJSONs == nil {
-		// This is the first upload call, so let's initialize.
-		f.init()
-	}
-	f.wg.Add(1)
-	f.fhirJSONs <- string(fhirJSON)
-}
-
-// Wait waits for all pending uploads to finish, and then returns.
-func (f *fhirStoreUploader) Wait() {
-	f.wg.Wait()
-}
-
-// DoneUploading must be called when the caller is done sending items to upload to
-// this uploader.
-func (f *fhirStoreUploader) DoneUploading() {
-	close(f.fhirJSONs)
-}
-
-func uploadWorker(fhirJSONs <-chan string, fhirStoreEndpoint string, wg *sync.WaitGroup) {
-	c, err := fhirstore.NewClient(context.Background(), fhirStoreEndpoint)
-	if err != nil {
-		log.Fatalf("error initializing FHIR store client: %v", err)
-	}
-
-	for fhirJSON := range fhirJSONs {
-		err := c.UploadResource([]byte(fhirJSON), *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID)
-		if err != nil {
-			// TODO(b/211490544): consider adding an auto-retrying mechanism in the
-			// future.
-			log.Errorf("error uploading resource: %v", err)
-			fhirStoreUploadErrorCounter.Increment()
-		}
-		wg.Done()
-	}
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the
