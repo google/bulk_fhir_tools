@@ -267,7 +267,6 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 			// Override fhirOut to be the original un-rectified json.
 			fhirOut = s.Bytes()
 		}
-		fhirOut = append(fhirOut, byte('\n'))
 
 		// Add this FHIR resource to the queue to be written to FHIR store.
 		if *enableFHIRStore {
@@ -275,7 +274,8 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		}
 
 		if w != nil {
-			if _, err := w.Write(fhirOut); err != nil {
+			// We write with a newline because this is a newline delimited JSON file.
+			if _, err := w.Write(append(fhirOut, byte('\n'))); err != nil {
 				log.Exitf("issue during file write: %v", err)
 			}
 		}
