@@ -2,6 +2,9 @@ package fhirstore
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path"
 	"sync"
 
 	log "github.com/golang/glog"
@@ -21,18 +24,36 @@ type Uploader struct {
 	fhirJSONs  chan string
 	maxWorkers int
 	wg         *sync.WaitGroup
+
+	errorFileOutputPath string
+
+	errNDJSONFileMut sync.Mutex
+	errorNDJSONFile  *os.File
 }
 
+// TODO(b/226586131): consider a config struct based parameter for NewUploader.
+
 // NewUploader initializes and returns an Uploader.
-func NewUploader(fhirStoreEndpoint, projectID, location, datasetID, fhirStoreID string, maxWorkers int, errorCounter *counter.Counter) *Uploader {
-	return &Uploader{
-		fhirStoreEndpoint:  fhirStoreEndpoint,
-		fhirStoreProjectID: projectID,
-		fhirStoreLocation:  location,
-		fhirStoreDatasetID: datasetID,
-		fhirStoreID:        fhirStoreID,
-		errorCounter:       errorCounter,
-		maxWorkers:         maxWorkers}
+func NewUploader(fhirStoreEndpoint, projectID, location, datasetID, fhirStoreID string, maxWorkers int, errorCounter *counter.Counter, errorFileOutputPath string) (*Uploader, error) {
+	u := &Uploader{
+		fhirStoreEndpoint:   fhirStoreEndpoint,
+		fhirStoreProjectID:  projectID,
+		fhirStoreLocation:   location,
+		fhirStoreDatasetID:  datasetID,
+		fhirStoreID:         fhirStoreID,
+		errorCounter:        errorCounter,
+		maxWorkers:          maxWorkers,
+		errorFileOutputPath: errorFileOutputPath}
+
+	if errorFileOutputPath != "" {
+		f, err := os.OpenFile(path.Join(errorFileOutputPath, "resourcesWithErrors.ndjson"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, err
+		}
+		u.errorNDJSONFile = f
+	}
+
+	return u, nil
 }
 
 func (u *Uploader) init() {
@@ -54,9 +75,14 @@ func (u *Uploader) Upload(fhirJSON []byte) {
 	u.fhirJSONs <- string(fhirJSON)
 }
 
-// Wait waits for all pending uploads to finish, and then returns.
-func (u *Uploader) Wait() {
+// Wait waits for all pending uploads to finish, and then returns. It may return
+// an error if there is an issue closing any underlying files.
+func (u *Uploader) Wait() error {
 	u.wg.Wait()
+	if u.errorNDJSONFile != nil {
+		return u.errorNDJSONFile.Close()
+	}
+	return nil
 }
 
 // DoneUploading must be called when the caller is done sending items to upload to
@@ -80,7 +106,27 @@ func (u *Uploader) uploadWorker() {
 			if u.errorCounter != nil {
 				u.errorCounter.Increment()
 			}
+			u.writeError(fhirJSON, err)
 		}
 		u.wg.Done()
 	}
+}
+
+func (u *Uploader) writeError(fhirJSON string, err error) {
+	if u.errorNDJSONFile != nil {
+		data, jsonErr := json.Marshal(errorNDJSONLine{Err: err.Error(), FHIRResource: fhirJSON})
+		if jsonErr != nil {
+			log.Errorf("error marshaling data to write to error file: %v", jsonErr)
+			return
+		}
+		u.errNDJSONFileMut.Lock()
+		defer u.errNDJSONFileMut.Unlock()
+		u.errorNDJSONFile.Write(data)
+		u.errorNDJSONFile.Write([]byte("\n"))
+	}
+}
+
+type errorNDJSONLine struct {
+	Err          string `json:"err"`
+	FHIRResource string `json:"fhir_resource"`
 }

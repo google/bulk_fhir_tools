@@ -33,22 +33,23 @@ import (
 )
 
 var (
-	clientID                  = flag.String("client_id", "", "BCDA API client ID (required)")
-	clientSecret              = flag.String("client_secret", "", "BCDA API client secret (required)")
-	outputPrefix              = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
-	useV2                     = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
-	rectify                   = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
-	enableFHIRStore           = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
-	maxFHIRStoreUploadWorkers = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
-	fhirStoreGCPProject       = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
-	fhirStoreGCPLocation      = flag.String("fhir_store_gcp_location", "", "The GCP location of the FHIR Store.")
-	fhirStoreGCPDatasetID     = flag.String("fhir_store_gcp_dataset_id", "", "The dataset ID for the FHIR Store.")
-	fhirStoreID               = flag.String("fhir_store_id", "", "The FHIR Store ID.")
-	serverURL                 = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
-	since                     = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
-	sinceFile                 = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
-	noFailOnUploadErrors      = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
-	bcdaJobID                 = flag.String("bcda_job_id", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job ID provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
+	clientID                    = flag.String("client_id", "", "BCDA API client ID (required)")
+	clientSecret                = flag.String("client_secret", "", "BCDA API client secret (required)")
+	outputPrefix                = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
+	useV2                       = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
+	rectify                     = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
+	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
+	maxFHIRStoreUploadWorkers   = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
+	fhirStoreGCPProject         = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
+	fhirStoreGCPLocation        = flag.String("fhir_store_gcp_location", "", "The GCP location of the FHIR Store.")
+	fhirStoreGCPDatasetID       = flag.String("fhir_store_gcp_dataset_id", "", "The dataset ID for the FHIR Store.")
+	fhirStoreID                 = flag.String("fhir_store_id", "", "The FHIR Store ID.")
+	fhirStoreUploadErrorFileDir = flag.String("fhir_store_upload_error_file_dir", "", "An optional path to a directory where an upload errors file should be written. This file will contain the FHIR NDJSON and error information of FHIR resources that fail to upload to FHIR store.")
+	serverURL                   = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
+	since                       = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
+	sinceFile                   = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
+	noFailOnUploadErrors        = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
+	bcdaJobID                   = flag.String("bcda_job_id", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job ID provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
 )
 
 // Note that counters are initialized in mainWrapper.
@@ -256,7 +257,10 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		}
 	}
 
-	uploader := fhirstore.NewUploader(cfg.fhirStoreEndpoint, *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID, *maxFHIRStoreUploadWorkers, fhirStoreUploadErrorCounter)
+	uploader, err := fhirstore.NewUploader(cfg.fhirStoreEndpoint, *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID, *maxFHIRStoreUploadWorkers, fhirStoreUploadErrorCounter, *fhirStoreUploadErrorFileDir)
+	if err != nil {
+		log.Exitf("unable to init uploader: %v", err)
+	}
 
 	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
@@ -285,7 +289,9 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 	// work in the for loop above.
 	if *enableFHIRStore {
 		uploader.DoneUploading()
-		uploader.Wait()
+		if err := uploader.Wait(); err != nil {
+			log.Warningf("error closing the uploader: %v", err)
+		}
 	}
 }
 

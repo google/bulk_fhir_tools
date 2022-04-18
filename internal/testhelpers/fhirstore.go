@@ -4,14 +4,19 @@
 package testhelpers
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path"
 	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // FHIRStoreTestResource represents a test FHIR resource to be uploaded to
@@ -68,6 +73,50 @@ func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, pr
 		}
 	})
 	return server.URL
+}
+
+// CheckErrorNDJSONFile is a helper to test that the contents of the error
+// ndjson file written by fhirstore.Uploader are correct.
+func CheckErrorNDJSONFile(t *testing.T, dir string, wantErrors []ErrorNDJSONLine) {
+	t.Helper()
+	f, err := os.Open(path.Join(dir, "resourcesWithErrors.ndjson"))
+	if err != nil {
+		t.Errorf("unable to open resourcesWithErrors error file: %v", err)
+	}
+	defer f.Close()
+
+	var gotErrors []ErrorNDJSONLine
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		var e ErrorNDJSONLine
+		if err := json.Unmarshal(s.Bytes(), &e); err != nil {
+			t.Errorf("error unmarshaling data in error file: %v", err)
+		}
+		gotErrors = append(gotErrors, e)
+	}
+
+	normalizedGotErrors := normalizeErrorNDJSONLines(t, gotErrors)
+	normalizedWantErrors := normalizeErrorNDJSONLines(t, wantErrors)
+
+	sortFunc := func(a, b ErrorNDJSONLine) bool { return a.FHIRResource < b.FHIRResource }
+	if diff := cmp.Diff(normalizedGotErrors, normalizedWantErrors, cmpopts.SortSlices(sortFunc)); diff != "" {
+		t.Errorf("unexpected resourcesWithErrors data. diff: %v", diff)
+	}
+}
+
+func normalizeErrorNDJSONLines(t *testing.T, in []ErrorNDJSONLine) []ErrorNDJSONLine {
+	normalized := make([]ErrorNDJSONLine, len(in))
+	for i, e := range in {
+		normalized[i] = ErrorNDJSONLine{Err: e.Err, FHIRResource: NormalizeJSONString(t, e.FHIRResource)}
+	}
+	return normalized
+}
+
+// ErrorNDJSONLine represents one line of an error NDJSON file produced by
+// fhirstore.Uploader.
+type ErrorNDJSONLine struct {
+	Err          string `json:"err"`
+	FHIRResource string `json:"fhir_resource"`
 }
 
 func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) (*FHIRStoreTestResource, int) {

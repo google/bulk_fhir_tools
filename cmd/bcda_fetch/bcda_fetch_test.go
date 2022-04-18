@@ -35,11 +35,12 @@ import (
 
 func TestMainWrapper(t *testing.T) {
 	cases := []struct {
-		name            string
-		rectify         bool
-		enableFHIRStore bool
-		apiVersion      bcda.Version
-		since           string // empty string indicates no value provided.
+		name                              string
+		rectify                           bool
+		enableFHIRStore                   bool
+		apiVersion                        bcda.Version
+		since                             string // empty string indicates no value provided.
+		enableFHIRStoreUploadErrorFileDir bool
 
 		sinceFileContent []byte // empty string indicates no value provided.
 		// sinceFileLatestTimestamp is the timestamp expected to be sent to the
@@ -213,6 +214,39 @@ func TestMainWrapper(t *testing.T) {
 			fhirStoreFailures:    true,
 			noFailOnUploadErrors: true,
 			wantError:            nil,
+		},
+		// Test FHIR Store upload errors file output.
+		{
+			name:                              "ErrorFileWithFHIRStoreUploadFailuresBCDAV1",
+			rectify:                           true,
+			enableFHIRStore:                   true,
+			apiVersion:                        bcda.V1,
+			fhirStoreFailures:                 true,
+			enableFHIRStoreUploadErrorFileDir: true,
+			wantError:                         errUploadFailures,
+		},
+		{
+			name:                              "ErrorFileWithFHIRStoreUploadFailuresBCDAV2",
+			rectify:                           true,
+			enableFHIRStore:                   true,
+			apiVersion:                        bcda.V2,
+			fhirStoreFailures:                 true,
+			enableFHIRStoreUploadErrorFileDir: true,
+			wantError:                         errUploadFailures,
+		},
+		{
+			name:                              "ErrorFileWithSuccessfulUploadBCDAV1",
+			rectify:                           true,
+			enableFHIRStore:                   true,
+			apiVersion:                        bcda.V1,
+			enableFHIRStoreUploadErrorFileDir: true,
+		},
+		{
+			name:                              "ErrorFileWithSuccessfulUploadBCDAV2",
+			rectify:                           true,
+			enableFHIRStore:                   true,
+			apiVersion:                        bcda.V2,
+			enableFHIRStoreUploadErrorFileDir: true,
 		},
 		{
 			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
@@ -421,6 +455,7 @@ func TestMainWrapper(t *testing.T) {
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
+
 			defer SaveFlags().Restore()
 			flag.Set("client_id", "id")
 			flag.Set("client_secret", "secret")
@@ -452,6 +487,12 @@ func TestMainWrapper(t *testing.T) {
 				flag.Set("no_fail_on_upload_errors", "true")
 			}
 
+			fhirStoreUploadErrorFileDir := ""
+			if tc.enableFHIRStoreUploadErrorFileDir {
+				fhirStoreUploadErrorFileDir = t.TempDir()
+				flag.Set("fhir_store_upload_error_file_dir", fhirStoreUploadErrorFileDir)
+			}
+
 			sinceTmpFile, err := ioutil.TempFile(t.TempDir(), "since_file.txt")
 			if err != nil {
 				t.Fatalf("unable to initialize since_file.txt: %v", err)
@@ -467,8 +508,9 @@ func TestMainWrapper(t *testing.T) {
 			}
 
 			fhirStoreEndpoint := ""
+			var fhirStoreTests []testhelpers.FHIRStoreTestResource
 			if tc.enableFHIRStore {
-				fhirStoreTests := []testhelpers.FHIRStoreTestResource{
+				fhirStoreTests = []testhelpers.FHIRStoreTestResource{
 					{
 						ResourceID:   "PatientID",
 						ResourceType: "Patient",
@@ -509,60 +551,70 @@ func TestMainWrapper(t *testing.T) {
 			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
 				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 			}
-			if tc.wantError != nil {
-				// End the test here, no further checks needed.
-				return
-			}
 
-			// Check NDJSON outputs:
-			expectedFileSuffixToData := map[string][]byte{
-				"_ExplanationOfBenefit_0.ndjson": file3Data,
-				"_Coverage_0.ndjson":             file2Data,
-				"_Patient_0.ndjson":              file1Data}
-
-			if tc.rectify {
-				// Replace expected data with the rectified version of resource:
-				expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
-			}
-
-			if tc.bcdaJobID != "" {
-				if got := exportEndpointCalled.Value(); got > 0 {
-					t.Errorf("mainWrapper: when bcdaJobID is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+			// Check upload errors file if necessary:
+			if tc.enableFHIRStoreUploadErrorFileDir {
+				var wantErrors []testhelpers.ErrorNDJSONLine
+				if tc.fhirStoreFailures {
+					for _, ft := range fhirStoreTests {
+						wantErrors = append(wantErrors, testhelpers.ErrorNDJSONLine{Err: "error from API server: status 500 500 Internal Server Error:  error was received from the Healthcare API server", FHIRResource: string(ft.Data)})
+					}
 				}
+				testhelpers.CheckErrorNDJSONFile(t, fhirStoreUploadErrorFileDir, wantErrors)
 			}
 
-			if !tc.unsetOutputPrefix {
-				for fileSuffix, wantData := range expectedFileSuffixToData {
-					fullPath := outputPrefix + fileSuffix
-					r, err := os.Open(fullPath)
+			// Checks that should only run if wantError is nil.
+			if tc.wantError == nil {
+				// Check NDJSON outputs:
+				expectedFileSuffixToData := map[string][]byte{
+					"_ExplanationOfBenefit_0.ndjson": file3Data,
+					"_Coverage_0.ndjson":             file2Data,
+					"_Patient_0.ndjson":              file1Data}
+
+				if tc.rectify {
+					// Replace expected data with the rectified version of resource:
+					expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
+				}
+
+				if tc.bcdaJobID != "" {
+					if got := exportEndpointCalled.Value(); got > 0 {
+						t.Errorf("mainWrapper: when bcdaJobID is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+					}
+				}
+
+				if !tc.unsetOutputPrefix {
+					for fileSuffix, wantData := range expectedFileSuffixToData {
+						fullPath := outputPrefix + fileSuffix
+						r, err := os.Open(fullPath)
+						if err != nil {
+							t.Errorf("unable to open file %s: %s", fullPath, err)
+						}
+						defer r.Close()
+						gotData, err := io.ReadAll(r)
+						if err != nil {
+							t.Errorf("error reading file %s: %v", fullPath, err)
+						}
+						if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, wantData)) {
+							t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
+						}
+					}
+				}
+
+				// Check sinceFile if necessary:
+				if len(tc.sinceFileContent) != 0 {
+					f, err := os.Open(sinceTmpFile.Name())
 					if err != nil {
-						t.Errorf("unable to open file %s: %s", fullPath, err)
+						t.Errorf("unable to open sinceTmpFile: %v", err)
 					}
-					defer r.Close()
-					gotData, err := io.ReadAll(r)
+					defer f.Close()
+					fileData, err := io.ReadAll(f)
 					if err != nil {
-						t.Errorf("error reading file %s: %v", fullPath, err)
+						t.Errorf("unable to read sinceTmpFile: %v", err)
 					}
-					if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, wantData)) {
-						t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
+
+					if !cmp.Equal(fileData, tc.sinceFileExpectedContent) {
+						t.Errorf("sinceFile unexpected content. got: %v, want: %v", fileData, tc.sinceFileExpectedContent)
 					}
-				}
-			}
-
-			// Check sinceFile if necessary:
-			if len(tc.sinceFileContent) != 0 {
-				f, err := os.Open(sinceTmpFile.Name())
-				if err != nil {
-					t.Errorf("unable to open sinceTmpFile: %v", err)
-				}
-				defer f.Close()
-				fileData, err := io.ReadAll(f)
-				if err != nil {
-					t.Errorf("unable to read sinceTmpFile: %v", err)
-				}
-
-				if !cmp.Equal(fileData, tc.sinceFileExpectedContent) {
-					t.Errorf("sinceFile unexpected content. got: %v, want: %v", fileData, tc.sinceFileExpectedContent)
 				}
 			}
 
