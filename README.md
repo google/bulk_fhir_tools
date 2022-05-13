@@ -46,6 +46,9 @@ repository (note you must have [Go](https://go.dev/dl/) installed):
 go build cmd/bcda_fetch/bcda_fetch.go
 ```
 
+To build on a GCP VM, you can follow these [instructions](docs/gcp_vm_setup.md)
+to get the environment setup.
+
 <!---TODO(b/199179306): add link below when public.--->
 Or download a prebuilt binary from the GitHub releases tab.
 
@@ -135,6 +138,10 @@ Note, do not run concurrent instances of fetch that use the same since file.
     -fhir_store_id="your_fhir_store_id" \
     -alsologtostderr=true -stderrthreshold=0
   ```
+
+  Note: If `-enable_fhir_store=true` specifying `-output_prefix` is optional. If
+  `-output_prefix` is not specified, no NDJSON output will be written to local
+  disk and the only output will be to FHIR store.
 
 To set up the `bcda_fetch` program to run periodically, take a look at the
 [documentation](docs/periodic_gcp_ingestion.md).

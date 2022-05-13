@@ -37,8 +37,8 @@ just need to ensure that service account has read/write permissions to your
 FHIR store.
 
 
-1. [Create a new linux virtual machine](https://cloud.google.com/compute/docs/instances/create-start-instance)
-2. Follow the Build instructions in the README to either build the `bcda_fetch`
+1. Follow the [GCP VM Setup](gcp_vm_setup.md) for this codebase.
+2. Follow the Build instructions to either build the `bcda_fetch`
   program from source, or download a pre-built version of the program from
   GitHub.
 3. Cron should be installed already, but activate it using
