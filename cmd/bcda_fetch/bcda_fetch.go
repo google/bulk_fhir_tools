@@ -248,13 +248,14 @@ func writeData(r io.Reader, filePrefix string) {
 }
 
 func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
-	var w io.Writer = nil
+	var w io.WriteCloser = nil
 	if filePrefix != "" {
 		var err error
 		w, err = os.OpenFile(fmt.Sprintf("%s.ndjson", filePrefix), os.O_RDWR|os.O_CREATE, 0755)
 		if err != nil {
 			log.Exitf("Unable to create output file: %v", err)
 		}
+		defer w.Close()
 	}
 
 	uploader, err := fhirstore.NewUploader(cfg.fhirStoreEndpoint, *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID, *maxFHIRStoreUploadWorkers, fhirStoreUploadErrorCounter, *fhirStoreUploadErrorFileDir)
