@@ -3,7 +3,10 @@ on: [push, pull_request]
 jobs:
 
   go_test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
 
     - name: Set up Go 1.17
