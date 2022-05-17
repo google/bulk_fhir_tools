@@ -29,6 +29,7 @@ import (
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bcda"
 )
@@ -493,12 +494,14 @@ func TestMainWrapper(t *testing.T) {
 				flag.Set("fhir_store_upload_error_file_dir", fhirStoreUploadErrorFileDir)
 			}
 
-			sinceTmpFile, err := ioutil.TempFile(t.TempDir(), "since_file.txt")
-			if err != nil {
-				t.Fatalf("unable to initialize since_file.txt: %v", err)
-			}
+			var sinceTmpFile *os.File
+			var err error
 			if len(tc.sinceFileContent) != 0 {
-				_, err := sinceTmpFile.Write(tc.sinceFileContent)
+				sinceTmpFile, err = ioutil.TempFile(t.TempDir(), "since_file.txt")
+				if err != nil {
+					t.Fatalf("unable to initialize since_file.txt: %v", err)
+				}
+				_, err = sinceTmpFile.Write(tc.sinceFileContent)
 				if err != nil {
 					sinceTmpFile.Close()
 					t.Fatalf("unable to initialize since_file.txt: %v", err)
