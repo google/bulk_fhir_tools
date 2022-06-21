@@ -13,10 +13,14 @@ disk or GCP's
 [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir)
 from [Medicare's Beneficiary Claims Data API (BCDA)](https://bcda.cms.gov/).
 
-This repository also contains example [analysis notebooks](analytics) that show
-how to query and work with the data once it's in FHIR Store and BigQuery.
+This repository also contains example [analysis notebooks](analytics)
+using synthetic data that showcase query patterns once the data is in FHIR Store
+and BigQuery.
 
 Note: This is not an official Google product.
+
+__If using these tools with protected health information (PHI), please be sure
+to follow your organization's policies with respect to PHI.__
 
 ## Overview
 <!---TODO(b/199179306): add links to code paths below.--->
@@ -62,8 +66,8 @@ you can use the synthetic data sandbox credentials (client_id and
 client_secret) from one of the options
 [here](https://bcda.cms.gov/guide.html#try-the-api).
 
-If using with real data, please be sure to follow your organization's policies
-with respect to PHI.
+__If using these tools with protected health information (PHI), please be sure
+to follow your organization's policies with respect to PHI.__
 
 * __Fetch all BCDA data for your ACO to local NDJSON files:__
 
