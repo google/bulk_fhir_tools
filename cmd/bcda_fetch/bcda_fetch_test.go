@@ -29,6 +29,7 @@ import (
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
+	log "github.com/golang/glog"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bcda"
@@ -821,36 +822,67 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	}
 }
 
-func TestMainWrapper_GetDataAuthRetry(t *testing.T) {
-	// This tests that if GetData returns unauthorized, mainWrapper attempts to
-	// re-authorize and try again at least 5 times.
+func TestMainWrapper_GetDataRetry(t *testing.T) {
+	// This tests that if GetData returns unauthorized or not found, mainWrapper
+	// attempts to re-authorize and try again at least 5 times.
 	cases := []struct {
 		name               string
 		apiVersion         bcda.Version
+		httpErrorToRetrun  int
 		numRetriesBeforeOK int
 		wantError          error
 	}{
 		{
 			name:               "BCDAV1",
 			apiVersion:         bcda.V1,
+			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 5,
 		},
 		{
 			name:               "BCDAV2",
 			apiVersion:         bcda.V2,
+			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 5,
 		},
 		{
 			name:               "BCDAV1TooManyRetries",
 			apiVersion:         bcda.V1,
+			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 6,
 			wantError:          bcda.ErrorUnauthorized,
 		},
 		{
 			name:               "BCDAV2TooManyRetries",
 			apiVersion:         bcda.V2,
+			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 6,
 			wantError:          bcda.ErrorUnauthorized,
+		},
+		{
+			name:               "BCDAV1With404",
+			apiVersion:         bcda.V1,
+			httpErrorToRetrun:  http.StatusNotFound,
+			numRetriesBeforeOK: 5,
+		},
+		{
+			name:               "BCDAV2With404",
+			apiVersion:         bcda.V2,
+			httpErrorToRetrun:  http.StatusNotFound,
+			numRetriesBeforeOK: 5,
+		},
+		{
+			name:               "BCDAV1TooManyRetriesWith404",
+			apiVersion:         bcda.V1,
+			httpErrorToRetrun:  http.StatusNotFound,
+			numRetriesBeforeOK: 6,
+			wantError:          bcda.ErrorRetryableHTTPStatus,
+		},
+		{
+			name:               "BCDAV2TooManyRetriesWith404",
+			apiVersion:         bcda.V2,
+			httpErrorToRetrun:  http.StatusNotFound,
+			numRetriesBeforeOK: 6,
+			wantError:          bcda.ErrorRetryableHTTPStatus,
 		},
 	}
 
@@ -877,7 +909,8 @@ func TestMainWrapper_GetDataAuthRetry(t *testing.T) {
 			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				getDataCalled.Increment()
 				if authCalled.Value() < tc.numRetriesBeforeOK+1 { // plus 1 because auth always called once at client init.
-					w.WriteHeader(http.StatusUnauthorized)
+					log.Error(authCalled.Value())
+					w.WriteHeader(tc.httpErrorToRetrun)
 					return
 				}
 				w.WriteHeader(http.StatusOK)

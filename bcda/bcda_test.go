@@ -546,6 +546,17 @@ func testGetData(t *testing.T, version Version) {
 		}
 	})
 
+	t.Run("retryable not-OK http response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		c := Client{token: "123", httpClient: &http.Client{}, version: version}
+		_, err := c.GetData(server.URL)
+		if !errors.Is(err, ErrorRetryableHTTPStatus) {
+			t.Errorf("GetData(%v) returned incorrect underlying error. got: %v, want: %v", server.URL, err, ErrorRetryableHTTPStatus)
+		}
+	})
+
 	t.Run("valid GetData", func(t *testing.T) {
 		token := "123"
 		expectedAuth := fmt.Sprintf("Bearer %s", token)

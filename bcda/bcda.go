@@ -38,7 +38,8 @@ var (
 	ErrorUnableToParseProgress = errors.New("unable to parse progress out of X-Progress header")
 	// ErrorUnauthorized indicates that the BCDA API considers this client
 	// unauthorized (it is possible the token has expired). The caller of the BCDA
-	// library should consider calling Authenticate() again if needed.
+	// library should consider calling Authenticate() and then retrying the
+	// operation if needed.
 	ErrorUnauthorized = errors.New("BCDA server indicates this client is unauthorized")
 	// ErrorTimeout indicates the operation timed out.
 	ErrorTimeout = errors.New("this operation timed out")
@@ -50,6 +51,11 @@ var (
 	ErrorGreaterThanOneContentLocation = errors.New("greater than 1 Content-Location header")
 	// ErrorUnexpectedNumberOfXProgress indicated unexpected number of X-Progress headers present.
 	ErrorUnexpectedNumberOfXProgress = errors.New("unexpected number of x-progress headers")
+	// ErrorRetryableHTTPStatus may be wrapped into other errors emitted by this package
+	// to indicate to the caller that a retryable http error code was returned
+	// from BCDA.
+	// TODO(b/239596656): consider adding auto-retry logic within this package.
+	ErrorRetryableHTTPStatus = errors.New("this is a retryable but unexpected HTTP status code error")
 )
 
 // ResourceType represents a FHIR resource that can be retrieved from the BCDA API.
@@ -406,15 +412,23 @@ func (c *Client) GetData(bcdaURL string) (dataStream io.ReadCloser, err error) {
 		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, ErrorUnauthorized
-	}
 	// TODO(b/163811116): revisit possibly accecpting other 2xx status codes
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return resp.Body, nil
+	// Handle some explicit error cases
+	case http.StatusUnauthorized:
+		return nil, ErrorUnauthorized
+	case http.StatusNotFound:
+		// BCDA 404s need to be retried in some instances.
+		return nil, retryableNonOKError(resp.StatusCode)
+	default:
 		return nil, fmt.Errorf("unexpected non-OK http status code: %d %w", resp.StatusCode, ErrorUnexpectedStatusCode)
 	}
+}
 
-	return resp.Body, nil
+func retryableNonOKError(code int) error {
+	return fmt.Errorf("unexpected non-OK http status code: %d %w", code, ErrorRetryableHTTPStatus)
 }
 
 // tokenResponse represents the BCDA api response from the GetToken endpoint.

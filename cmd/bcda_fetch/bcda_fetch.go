@@ -218,9 +218,11 @@ func mainWrapper(cfg mainWrapperConfig) error {
 func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) (io.ReadCloser, error) {
 	r, err := cl.GetData(url)
 	numRetries := 0
-	for errors.Is(err, bcda.ErrorUnauthorized) && numRetries < 5 {
+	// Retry both unauthorized and other retryable errors by re-authenticating,
+	// as sometimes they appear to be related.
+	for (errors.Is(err, bcda.ErrorUnauthorized) || errors.Is(err, bcda.ErrorRetryableHTTPStatus)) && numRetries < 5 {
 		time.Sleep(2 * time.Second)
-		log.Infof("Got Unauthorized from BCDA. Re-authenticating and trying again.")
+		log.Infof("Got retryable error from BCDA. Re-authenticating and trying again.")
 		if _, err := cl.Authenticate(clientID, clientSecret); err != nil {
 			return nil, fmt.Errorf("Error authenticating with API: %w", err)
 		}
@@ -231,6 +233,7 @@ func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) (io.Read
 	if err != nil {
 		return nil, fmt.Errorf("Unable to GetData(%s) %w", url, err)
 	}
+
 	return r, nil
 }
 
