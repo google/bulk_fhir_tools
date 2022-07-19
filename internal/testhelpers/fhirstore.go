@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -28,11 +29,11 @@ type FHIRStoreTestResource struct {
 }
 
 // FHIRStoreServer creates a test FHIR store server that expects the provided
-// expectedResources. If it receives valid upload requests that do not include
-// elements from expectedResources, it will call t.Errorf with an error. If not
-// all of the resources in expectedResources are uploaded by the end of the test
-// errors are thrown. The test server's URL is returned by this function, and
-// is auto-closed at the end of the test.
+// expectedResources uploaded as single resources. If it receives valid upload
+// requests that do not include elements from expectedResources, it will call
+// t.Errorf with an error. If not all of the resources in expectedResources are
+// uploaded by the end of the test errors are thrown. The test server's URL is
+// returned by this function, and is auto-closed at the end of the test.
 func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) string {
 	t.Helper()
 	var expectedResourceWasUploadedMutex sync.Mutex
@@ -72,6 +73,42 @@ func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, pr
 			}
 		}
 	})
+	return server.URL
+}
+
+// FHIRStoreServerBatch sets up a test FHIR Store Server for batch executeBundle
+// requests. It ensures proper executeBundle requests are sent, and that the
+// bundles are in batch mode and contain the expectedFHIRResources.
+func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, projectID, location, datasetID, fhirStoreID string) string {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		bundlePath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir?", projectID, location, datasetID, fhirStoreID)
+		if req.URL.String() != bundlePath {
+			t.Errorf("FHIR store test server got call to unexpected URL. got: %v, want: %v", req.URL.String(), bundlePath)
+		}
+		if req.Method != http.MethodPost {
+			t.Errorf("FHIR Store test server unexpected HTTP method. got: %v, want: %v", req.Method, http.MethodPost)
+		}
+
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("unable to read executeBundle request body")
+		}
+		var gotBundle fhirBundle
+		err = json.Unmarshal(data, &gotBundle)
+		if err != nil {
+			t.Fatalf("unable to unmarshal executeBundle request body")
+		}
+		if gotBundle.Type != "batch" {
+			t.Errorf("unexpected bundle type, got: %v, want: batch", gotBundle.Type)
+		}
+		for i, gotEntry := range gotBundle.Entry {
+			if !cmp.Equal([]byte(gotEntry.Resource), expectedFHIRResources[i]) {
+				t.Errorf("unexpected entry in uploaded bundle. got: %s, want: %s", gotEntry.Resource, expectedFHIRResources[i])
+			}
+		}
+	}))
+
+	t.Cleanup(server.Close)
 	return server.URL
 }
 
@@ -127,4 +164,14 @@ func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTe
 		}
 	}
 	return nil, 0
+}
+
+type fhirBundle struct {
+	ResourceType string  `json:"resourceType"`
+	Type         string  `json:"type"`
+	Entry        []entry `json:"entry"`
+}
+
+type entry struct {
+	Resource json.RawMessage `json:"resource"`
 }

@@ -96,6 +96,98 @@ func (f *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID,
 	return nil
 }
 
+// UploadBatch uploads the provided group of FHIR resources to the GCP FHIR
+// store specified, and does so in "batch" mode assuming each FHIR resource is
+// independent. The error returned may be an instance of BundleError,
+// which provides additional structured information on the error.
+func (f *Client) UploadBatch(fhirJSONs [][]byte, projectID, location, datasetID, fhirStoreID string) error {
+	bundle := makeFHIRBundle(fhirJSONs, false)
+	bundleJSON, err := json.Marshal(bundle)
+	if err != nil {
+		return err
+	}
+	return f.UploadBundle(bundleJSON, projectID, location, datasetID, fhirStoreID)
+}
+
+// UploadBundle uploads the provided json serialized FHIR Bundle to the GCP
+// FHIR store specified. The error returned may be an instance of BundleError,
+// which provides additional structured information on the error.
+func (f *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
+	fhirService := f.service.Projects.Locations.Datasets.FhirStores.Fhir
+	parent := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", projectID, location, datasetID, fhirStoreID)
+
+	call := fhirService.ExecuteBundle(parent, bytes.NewReader(fhirBundleJSON))
+	call.Header().Set("Content-Type", "application/fhir+json;charset=utf-8")
+	resp, err := call.Do()
+	if err != nil {
+		return fmt.Errorf("error executing Healthcare API call (ExecuteBundle): %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode > 299 {
+		respBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("could not read response: %v", err)
+		}
+		return &BundleError{ResponseStatusCode: resp.StatusCode, ResponseStatusText: resp.Status, ResponseBytes: respBytes}
+	}
+
+	return nil
+}
+
+// BundleError represents an error returned from GCP FHIR Store when attempting
+// to upload a FHIR bundle. BundleError holds some structured error information
+// that may be of interest to the error consumer, including the error response
+// bytes (that may indicate more details on what particular resources in the
+// bundle had errors).
+// TODO(b/225916126): try to figure out if we can detect the format of error in
+// ResponseBytes and unpack that in a structured way for consumers.
+type BundleError struct {
+	ResponseStatusCode int
+	ResponseStatusText string
+	ResponseBytes      []byte
+}
+
+// Error returns a string version of error information.
+func (b *BundleError) Error() string {
+	return fmt.Sprintf("error from API server: status %d %s: %s", b.ResponseStatusCode, b.ResponseStatusText, b.ResponseBytes)
+}
+
+// Is returns true if this error should be considered equivalent to the target
+// error (and makes this work smoothly with errors.Is calls)
+func (b *BundleError) Is(target error) bool {
+	return target == ErrorAPIServer
+}
+
+type fhirBundle struct {
+	ResourceType string  `json:"resourceType"`
+	Type         string  `json:"type"`
+	Entry        []entry `json:"entry"`
+}
+
+type entry struct {
+	Resource json.RawMessage `json:"resource"`
+}
+
+func makeFHIRBundle(fhirJSONs [][]byte, isTransaction bool) *fhirBundle {
+	bundleType := "batch"
+	if isTransaction {
+		bundleType = "transaction"
+	}
+
+	bundle := fhirBundle{
+		ResourceType: "Bundle",
+		Type:         bundleType,
+	}
+
+	bundle.Entry = make([]entry, len(fhirJSONs))
+	for i, fhirJSON := range fhirJSONs {
+		bundle.Entry[i].Resource = fhirJSON
+	}
+
+	return &bundle
+}
+
 type resourceData struct {
 	ResourceID   string `json:"id"`
 	ResourceType string `json:"resourceType"`
