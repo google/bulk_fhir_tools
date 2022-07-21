@@ -89,7 +89,8 @@ func TestUploadBatch(t *testing.T) {
 	t.Run("ValidResponse", func(t *testing.T) {
 		// FHIRStoreServerBatch will check that the uploaded bundle matches resources
 		// in inputJSONs.
-		serverURL := testhelpers.FHIRStoreServerBatch(t, inputJSONs, projectID, location, datasetID, fhirStoreID)
+		expectedFullBatchSize := 2
+		serverURL := testhelpers.FHIRStoreServerBatch(t, inputJSONs, expectedFullBatchSize, projectID, location, datasetID, fhirStoreID)
 
 		c, err := fhirstore.NewClient(context.Background(), serverURL)
 		if err != nil {

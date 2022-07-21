@@ -261,7 +261,17 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		defer w.Close()
 	}
 
-	uploader, err := fhirstore.NewUploader(cfg.fhirStoreEndpoint, *fhirStoreGCPProject, *fhirStoreGCPLocation, *fhirStoreGCPDatasetID, *fhirStoreID, *maxFHIRStoreUploadWorkers, fhirStoreUploadErrorCounter, *fhirStoreUploadErrorFileDir)
+	uploader, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+		FHIRStoreEndpoint:   cfg.fhirStoreEndpoint,
+		FHIRStoreID:         *fhirStoreID,
+		FHIRProjectID:       *fhirStoreGCPProject,
+		FHIRLocation:        *fhirStoreGCPLocation,
+		FHIRDatasetID:       *fhirStoreGCPDatasetID,
+		MaxWorkers:          *maxFHIRStoreUploadWorkers,
+		ErrorCounter:        fhirStoreUploadErrorCounter,
+		ErrorFileOutputPath: *fhirStoreUploadErrorFileDir,
+	})
+
 	if err != nil {
 		log.Exitf("unable to init uploader: %v", err)
 	}

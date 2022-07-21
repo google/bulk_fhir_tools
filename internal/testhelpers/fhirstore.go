@@ -79,7 +79,18 @@ func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, pr
 // FHIRStoreServerBatch sets up a test FHIR Store Server for batch executeBundle
 // requests. It ensures proper executeBundle requests are sent, and that the
 // bundles are in batch mode and contain the expectedFHIRResources.
-func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, projectID, location, datasetID, fhirStoreID string) string {
+// It is okay to upload the full set of expectedFHIRResources over multiple
+// executeBundle batch calls to this server. At the end of the test, the
+// teardown of this server checks and ensures that all expectedFHIRResources
+// were uploaded at least once.
+func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, expectedFullBatchSize int, projectID, location, datasetID, fhirStoreID string) string {
+	t.Helper()
+	var expectedResourceWasUploadedMutex sync.Mutex
+	expectedResourceWasUploaded := make([]bool, len(expectedFHIRResources))
+
+	var oneBatchWithExpectedSizeMutex sync.Mutex
+	oneBatchWithExpectedSize := false
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		bundlePath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir?", projectID, location, datasetID, fhirStoreID)
 		if req.URL.String() != bundlePath {
@@ -101,14 +112,36 @@ func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, projectI
 		if gotBundle.Type != "batch" {
 			t.Errorf("unexpected bundle type, got: %v, want: batch", gotBundle.Type)
 		}
-		for i, gotEntry := range gotBundle.Entry {
-			if !cmp.Equal([]byte(gotEntry.Resource), expectedFHIRResources[i]) {
-				t.Errorf("unexpected entry in uploaded bundle. got: %s, want: %s", gotEntry.Resource, expectedFHIRResources[i])
+		if len(gotBundle.Entry) == expectedFullBatchSize {
+			oneBatchWithExpectedSizeMutex.Lock()
+			oneBatchWithExpectedSize = true
+			oneBatchWithExpectedSizeMutex.Unlock()
+		}
+		for _, gotEntry := range gotBundle.Entry {
+			gotResource := []byte(gotEntry.Resource)
+			expectedResourceIdx, ok := getIndexOf(gotResource, expectedFHIRResources)
+			if !ok {
+				t.Errorf("server received unexpected FHIR resource")
 			}
+
+			// Update the corresponding index in expectedResourceWasUploaded slice.
+			expectedResourceWasUploadedMutex.Lock()
+			expectedResourceWasUploaded[expectedResourceIdx] = true
+			expectedResourceWasUploadedMutex.Unlock()
 		}
 	}))
 
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.Close()
+		for idx, val := range expectedResourceWasUploaded {
+			if !val {
+				t.Errorf("FHIR store test server error. Expected resource was not uploaded. got: nil, want: %v", expectedFHIRResources[idx])
+			}
+		}
+		if !oneBatchWithExpectedSize {
+			t.Errorf("expected at least one batch with expected size: %v", expectedFullBatchSize)
+		}
+	})
 	return server.URL
 }
 
@@ -164,6 +197,15 @@ func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTe
 		}
 	}
 	return nil, 0
+}
+
+func getIndexOf(fhirResource []byte, fhirResources [][]byte) (int, bool) {
+	for idx, r := range fhirResources {
+		if cmp.Equal(fhirResource, r) {
+			return idx, true
+		}
+	}
+	return 0, false
 }
 
 type fhirBundle struct {
