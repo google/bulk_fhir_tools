@@ -119,9 +119,9 @@ func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, expected
 		}
 		for _, gotEntry := range gotBundle.Entry {
 			gotResource := []byte(gotEntry.Resource)
-			expectedResourceIdx, ok := getIndexOf(gotResource, expectedFHIRResources)
+			expectedResourceIdx, ok := getIndexOf(t, gotResource, expectedFHIRResources)
 			if !ok {
-				t.Errorf("server received unexpected FHIR resource")
+				t.Errorf("server received unexpected FHIR resource: %s", gotResource)
 			}
 
 			// Update the corresponding index in expectedResourceWasUploaded slice.
@@ -199,9 +199,9 @@ func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTe
 	return nil, 0
 }
 
-func getIndexOf(fhirResource []byte, fhirResources [][]byte) (int, bool) {
+func getIndexOf(t *testing.T, fhirResource []byte, fhirResources [][]byte) (int, bool) {
 	for idx, r := range fhirResources {
-		if cmp.Equal(fhirResource, r) {
+		if cmp.Equal(NormalizeJSON(t, fhirResource), NormalizeJSON(t, r)) {
 			return idx, true
 		}
 	}

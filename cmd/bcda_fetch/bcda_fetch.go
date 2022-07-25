@@ -45,6 +45,8 @@ var (
 	fhirStoreGCPDatasetID       = flag.String("fhir_store_gcp_dataset_id", "", "The dataset ID for the FHIR Store.")
 	fhirStoreID                 = flag.String("fhir_store_id", "", "The FHIR Store ID.")
 	fhirStoreUploadErrorFileDir = flag.String("fhir_store_upload_error_file_dir", "", "An optional path to a directory where an upload errors file should be written. This file will contain the FHIR NDJSON and error information of FHIR resources that fail to upload to FHIR store.")
+	fhirStoreEnableBatchUpload  = flag.Bool("fhir_store_enable_batch_upload", false, "If true, uploads FHIR resources to FHIR Store in batch bundles.")
+	fhirStoreBatchUploadSize    = flag.Int("fhir_store_batch_upload_size", 0, "If set, this is the batch size used to upload FHIR batch bundles to FHIR store. If this flag is not set and fhir_store_enable_batch_upload is true, a default batch size is used.")
 	serverURL                   = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
 	since                       = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
 	sinceFile                   = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
@@ -270,6 +272,8 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		MaxWorkers:          *maxFHIRStoreUploadWorkers,
 		ErrorCounter:        fhirStoreUploadErrorCounter,
 		ErrorFileOutputPath: *fhirStoreUploadErrorFileDir,
+		BatchUpload:         *fhirStoreEnableBatchUpload,
+		BatchSize:           *fhirStoreBatchUploadSize,
 	})
 
 	if err != nil {

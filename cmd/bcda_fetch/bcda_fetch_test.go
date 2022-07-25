@@ -53,9 +53,10 @@ func TestMainWrapper(t *testing.T) {
 		sinceFileExpectedContent []byte
 		// fhirStoreFailures causes the test fhir store server to return errors if
 		// set to true.
-		fhirStoreFailures    bool
-		noFailOnUploadErrors bool
-		bcdaJobID            string
+		fhirStoreFailures          bool
+		noFailOnUploadErrors       bool
+		bcdaJobID                  string
+		fhirStoreEnableBatchUpload bool
 		// unsetOutputPrefix sets the outputPrefix to empty string if true.
 		unsetOutputPrefix bool
 		// disableFHIRStoreUploadChecks will disable the portion of the test that
@@ -350,6 +351,21 @@ func TestMainWrapper(t *testing.T) {
 			bcdaJobID:                "999",
 			unsetOutputPrefix:        true,
 		},
+		// Batch upload tests cases
+		{
+			name:                       "BatchUploadWithBCDAV1",
+			enableFHIRStore:            true,
+			fhirStoreEnableBatchUpload: true,
+			apiVersion:                 bcda.V1,
+			rectify:                    true,
+		},
+		{
+			name:                       "BatchUploadWithBCDAV2",
+			enableFHIRStore:            true,
+			fhirStoreEnableBatchUpload: true,
+			apiVersion:                 bcda.V2,
+			rectify:                    true,
+		},
 		// TODO(b/226375559): see if we can generate some of the test cases above
 		// instead of having to spell them out explicitly.
 		// TODO(b/213365276): test that bcda V1 with rectify = true results in an
@@ -472,6 +488,10 @@ func TestMainWrapper(t *testing.T) {
 			flag.Set("fhir_store_id", gcpFHIRStoreID)
 			flag.Set("bcda_job_id", tc.bcdaJobID)
 
+			if tc.fhirStoreEnableBatchUpload {
+				flag.Set("fhir_store_enable_batch_upload", "true")
+			}
+
 			if tc.enableFHIRStore {
 				flag.Set("enable_fhir_store", "true")
 			}
@@ -544,8 +564,15 @@ func TestMainWrapper(t *testing.T) {
 				if tc.fhirStoreFailures {
 					fhirStoreEndpoint = serverAlwaysFails(t)
 				} else {
-					if !tc.disableFHIRStoreUploadChecks {
+					if !tc.disableFHIRStoreUploadChecks && !tc.fhirStoreEnableBatchUpload {
 						fhirStoreEndpoint = testhelpers.FHIRStoreServer(t, fhirStoreTests, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+					}
+					if !tc.disableFHIRStoreUploadChecks && tc.fhirStoreEnableBatchUpload {
+						expectedResources := [][]byte{file1Data, file2DataRectified, file3Data}
+						// Note that differing batch upload sizes are tested more
+						// extensively in the TestMainWrapper_BatchUploadSize test below.
+						expectedBatchSize := 1 // this is because we have one uploader per data file, and per data file there's only one resource.
+						fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, expectedBatchSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 					}
 				}
 			}
@@ -962,6 +989,125 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 					t.Errorf("mainWrapper: expected getDataCalled to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
 				}
 			}
+		})
+	}
+}
+
+func TestMainWrapper_BatchUploadSize(t *testing.T) {
+	// This test more comprehensively checks setting different batch sizes in
+	// bcda_fetch.
+	cases := []struct {
+		name            string
+		apiVersion      bcda.Version
+		batchUploadSize int
+	}{
+		{
+			name:            "BCDAV1WithBatchSize2",
+			apiVersion:      bcda.V1,
+			batchUploadSize: 2,
+		},
+		{
+			name:            "BCDAV2WithBatchSize2",
+			apiVersion:      bcda.V2,
+			batchUploadSize: 2,
+		},
+		{
+			name:            "BCDAV1WithBatchSize3",
+			apiVersion:      bcda.V1,
+			batchUploadSize: 3,
+		},
+		{
+			name:            "BCDAV2WithBatchSize3",
+			apiVersion:      bcda.V2,
+			batchUploadSize: 3,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// File 1 contains 3 Patient resources.
+			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+			patient2 := `{"resourceType":"Patient","id":"PatientID2"}`
+			patient3 := `{"resourceType":"Patient","id":"PatientID3"}`
+			file1Data := []byte(patient1 + "\n" + patient2 + "\n" + patient3)
+			exportEndpoint := "/api/v1/Group/all/$export"
+			jobsEndpoint := "/api/v1/jobs/1234"
+			if tc.apiVersion == bcda.V2 {
+				exportEndpoint = "/api/v2/Group/all/$export"
+				jobsEndpoint = "/api/v2/jobs/1234"
+			}
+			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+			// Setup BCDA test servers:
+
+			// A seperate resource server is needed during testing, so that we can send
+			// the jobsEndpoint response in the bcdaServer that includes a URL for the
+			// bcdaResourceServer in it.
+			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write(file1Data)
+			}))
+			defer bcdaResourceServer.Close()
+
+			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/auth/token":
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"access_token": "token"}`))
+				case exportEndpoint:
+					// Check that since is empty
+					if got := len(req.URL.Query()["_since"]); got != 0 {
+						t.Errorf("got unexpected _since URL param length. got: %v, want: %v", got, 0)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					w.Header()["Content-Location"] = []string{"some/info/1234"}
+					w.WriteHeader(http.StatusAccepted)
+				case jobsEndpoint:
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer bcdaServer.Close()
+
+			// Set minimal flags for this test case:
+			outputPrefix := t.TempDir()
+			defer SaveFlags().Restore()
+			flag.Set("client_id", "id")
+			flag.Set("client_secret", "secret")
+			flag.Set("output_prefix", outputPrefix)
+			flag.Set("bcda_server_url", bcdaServer.URL)
+			flag.Set("rectify", "true")
+
+			flag.Set("max_fhir_store_upload_workers", "1")
+			flag.Set("fhir_store_enable_batch_upload", "true")
+			flag.Set("fhir_store_batch_upload_size", fmt.Sprintf("%d", tc.batchUploadSize))
+
+			gcpProject := "project"
+			gcpLocation := "location"
+			gcpDatasetID := "dataset"
+			gcpFHIRStoreID := "fhirID"
+			flag.Set("fhir_store_gcp_project", gcpProject)
+			flag.Set("fhir_store_gcp_location", gcpLocation)
+			flag.Set("fhir_store_gcp_dataset_id", gcpDatasetID)
+			flag.Set("fhir_store_id", gcpFHIRStoreID)
+			flag.Set("enable_fhir_store", "true")
+
+			if tc.apiVersion == bcda.V2 {
+				flag.Set("use_v2", "true")
+			}
+
+			expectedResources := [][]byte{[]byte(patient1), []byte(patient2), []byte(patient3)}
+			fhirStoreEndpoint := testhelpers.FHIRStoreServerBatch(t, expectedResources, tc.batchUploadSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+
+			// Run mainWrapper:
+			cfg := mainWrapperConfig{fhirStoreEndpoint: fhirStoreEndpoint}
+			if err := mainWrapper(cfg); err != nil {
+				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			}
+
 		})
 	}
 }
