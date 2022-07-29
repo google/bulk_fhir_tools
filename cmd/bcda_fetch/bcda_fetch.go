@@ -115,12 +115,12 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		apiVersion = bcda.V2
 	}
 
-	cl, err := bcda.NewClient(*serverURL, apiVersion)
+	cl, err := bcda.NewClient(*serverURL, apiVersion, *clientID, *clientSecret)
 	if err != nil {
 		return fmt.Errorf("NewClient(%v, %v) error: %v", serverURL, apiVersion, err)
 	}
 
-	_, err = cl.Authenticate(*clientID, *clientSecret)
+	_, err = cl.Authenticate()
 	if err != nil {
 		return fmt.Errorf("Error authenticating with API: %v", err)
 	}
@@ -150,7 +150,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 
 		if err == bcda.ErrorUnauthorized {
-			_, err = cl.Authenticate(*clientID, *clientSecret)
+			_, err = cl.Authenticate()
 			if err != nil {
 				return fmt.Errorf("Error authenticating with API: %v", err)
 			}
@@ -225,7 +225,7 @@ func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) (io.Read
 	for (errors.Is(err, bcda.ErrorUnauthorized) || errors.Is(err, bcda.ErrorRetryableHTTPStatus)) && numRetries < 5 {
 		time.Sleep(2 * time.Second)
 		log.Infof("Got retryable error from BCDA. Re-authenticating and trying again.")
-		if _, err := cl.Authenticate(clientID, clientSecret); err != nil {
+		if _, err := cl.Authenticate(); err != nil {
 			return nil, fmt.Errorf("Error authenticating with API: %w", err)
 		}
 		r, err = cl.GetData(url)

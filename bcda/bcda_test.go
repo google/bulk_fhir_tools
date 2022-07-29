@@ -93,12 +93,12 @@ func testAuthenticate(t *testing.T, version Version) {
 	}))
 	defer server.Close()
 
-	cl, err := NewClient(server.URL, version)
+	cl, err := NewClient(server.URL, version, clientID, clientSecret)
 	if err != nil {
 		t.Fatalf("NewClient(%v, %v) error: %v", server.URL, version, err)
 	}
 
-	token, err := cl.Authenticate(clientID, clientSecret)
+	token, err := cl.Authenticate()
 	if err != nil {
 		t.Errorf("Authenticate(%s, %s) returned unexpected error: %v", clientID, clientSecret, err)
 	}

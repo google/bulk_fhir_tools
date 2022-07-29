@@ -126,16 +126,26 @@ func ResourceTypeFromAPI(r string) (ResourceType, error) {
 
 // Client represents a BCDA API client at some API version.
 type Client struct {
-	baseURL    string
+	baseURL string
+	version Version
+
+	clientID     string
+	clientSecret string
+
 	token      string
 	httpClient *http.Client
-	version Version
 }
 
 // NewClient creates and returns a new BCDA API Client for the input baseURL,
 // targeted at the provided API version.
-func NewClient(baseURL string, v Version) (*Client, error) {
-	return &Client{baseURL: baseURL, httpClient: &http.Client{}, version: v}, validateVersion(v)
+func NewClient(baseURL string, v Version, clientID, clientSecret string) (*Client, error) {
+	return &Client{
+		baseURL:      baseURL,
+		httpClient:   &http.Client{},
+		version:      v,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+	}, validateVersion(v)
 }
 
 // Close is a placeholder for any cleanup actions needed for the Client. Please
@@ -178,7 +188,7 @@ var progressREGEX = regexp.MustCompile(`\(([0-9]+?)%\)`)
 //
 // Authenticate must be called before calling other methods in the Client, otherwise the methods
 // will return an error that indicates Authenticate has not yet been called.
-func (c *Client) Authenticate(clientID, clientSecret string) (token string, err error) {
+func (c *Client) Authenticate() (token string, err error) {
 	url := c.baseURL + tokenEndpoint
 
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -186,7 +196,7 @@ func (c *Client) Authenticate(clientID, clientSecret string) (token string, err 
 		return "", err
 	}
 
-	req.SetBasicAuth(clientID, clientSecret)
+	req.SetBasicAuth(c.clientID, c.clientSecret)
 	req.Header.Add(acceptHeader, acceptHeaderJSON)
 
 	resp, err := c.httpClient.Do(req)
