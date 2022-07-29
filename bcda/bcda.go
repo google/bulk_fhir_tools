@@ -378,8 +378,10 @@ type MonitorResult struct {
 // the returned channel for the caller to consume. When the timeout is reached
 // or the job is completed, the final completed JobStatus will be sent to the
 // channel (or the ErrorTimeout error), and the channel will be closed.
+// If an ErrorUnauthroized is encountered, MonitorJobStatus will attempt to
+// reauthenticate and continue trying.
 func (c *Client) MonitorJobStatus(jobID string, checkPeriod, timeout time.Duration) <-chan *MonitorResult {
-	out := make(chan *MonitorResult)
+	out := make(chan *MonitorResult, 100)
 	deadline := time.Now().Add(timeout)
 	go func() {
 		var jobStatus JobStatus
@@ -387,6 +389,13 @@ func (c *Client) MonitorJobStatus(jobID string, checkPeriod, timeout time.Durati
 		for !jobStatus.IsComplete && time.Now().Before(deadline) {
 			jobStatus, err = c.JobStatus(jobID)
 			if err != nil {
+				if errors.Is(err, ErrorUnauthorized) {
+					_, err = c.Authenticate()
+					if err != nil {
+						out <- &MonitorResult{Error: err}
+					}
+					continue
+				}
 				out <- &MonitorResult{Error: err}
 			} else {
 				out <- &MonitorResult{Status: jobStatus}

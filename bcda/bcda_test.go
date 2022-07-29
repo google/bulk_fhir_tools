@@ -727,6 +727,80 @@ func testMonitorJobStatus(t *testing.T, version Version) {
 			})
 		}
 	})
+
+	t.Run("withAuthRetry", func(t *testing.T) {
+		var counter struct {
+			sync.Mutex
+			count int
+		}
+		var authCalled struct {
+			sync.Mutex
+			called bool
+		}
+		jobID := "456"
+		wantPath := fmt.Sprintf("/api/v1/jobs/%s", jobID)
+		if version == V2 {
+			wantPath = fmt.Sprintf("/api/v2/jobs/%s", jobID)
+		}
+		wantResource := Patient
+		wantURL := "url"
+		completeJobStatus := JobStatus{
+			IsComplete:      true,
+			ResultURLs:      map[ResourceType][]string{wantResource: []string{wantURL}},
+			TransactionTime: time.Date(2020, 9, 15, 17, 53, 11, 476000000, time.UTC)}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/auth/token" {
+				authCalled.Lock()
+				authCalled.called = true
+				authCalled.Unlock()
+				w.WriteHeader(200)
+				w.Write([]byte("{\"access_token\": \"token\"}"))
+				return
+			}
+
+			if req.URL.Path != wantPath {
+				t.Errorf("MonitorJobStatus(%v) made request with unexpected path. got: %v, want: %v", jobID, req.URL.String(), wantPath)
+				return
+			}
+
+			counter.Lock()
+			defer counter.Unlock()
+			counter.count++
+			if counter.count == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			// Write out the completed result
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantURL)))
+		}))
+
+		wantJobStatuses := []JobStatus{completeJobStatus}
+
+		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, version: version}
+		results := make([]JobStatus, 0, 1)
+
+		monitorPeriod := time.Millisecond
+		monitorTimeout := 2 * time.Second
+
+		for st := range cl.MonitorJobStatus(jobID, monitorPeriod, monitorTimeout) {
+			if st.Error != nil {
+				t.Errorf("MonitorJobStatus(%v,%v,%v) returned unexpected error: %v", jobID, monitorPeriod, monitorTimeout, st.Error)
+			}
+			results = append(results, st.Status)
+		}
+
+		authCalled.Lock()
+		defer authCalled.Unlock()
+		if !authCalled.called {
+			t.Errorf("expected authentication to be retried")
+		}
+
+		if diff := cmp.Diff(wantJobStatuses, results); diff != "" {
+			t.Errorf("MonitorJobStatus(%v,%v,%v) unexpected diff in result (-want +got):\n%s", jobID, monitorPeriod, monitorTimeout, diff)
+		}
+	})
 }
 
 // newUnauthorizedServer returns an httptest.Server that will always return

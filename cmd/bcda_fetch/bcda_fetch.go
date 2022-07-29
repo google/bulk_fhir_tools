@@ -139,31 +139,17 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		log.Infof("Started BCDA job: %s\n", jobID)
 	}
 
-	var jobStatus bcda.JobStatus
-	iter := 0
-	// Check the BCDA job status until it is complete or until the time spent
-	// checking exceeds the timeout.
-	for !jobStatus.IsComplete && (jobStatusPeriod*time.Duration(iter)) < jobStatusTimeout {
-		jobStatus, err = cl.JobStatus(jobID)
-		if err != nil && err != bcda.ErrorUnableToParseProgress && err != bcda.ErrorUnauthorized {
-			return fmt.Errorf("error getting job status: %v", err)
+	var monitorResult *bcda.MonitorResult
+	for monitorResult = range cl.MonitorJobStatus(jobID, jobStatusPeriod, jobStatusTimeout) {
+		if monitorResult.Error != nil {
+			log.Errorf("error while checking the jobStatus: %v", err)
 		}
-
-		if err == bcda.ErrorUnauthorized {
-			_, err = cl.Authenticate()
-			if err != nil {
-				return fmt.Errorf("Error authenticating with API: %v", err)
-			}
-			continue
-		}
-
-		if !jobStatus.IsComplete {
-			iter++
-			log.Infof("BCDA Export job pending, progress: %d\n", jobStatus.PercentComplete)
-			time.Sleep(jobStatusPeriod)
+		if !monitorResult.Status.IsComplete {
+			log.Infof("BCDA Export job pending, progress: %d\n", monitorResult.Status.PercentComplete)
 		}
 	}
 
+	jobStatus := monitorResult.Status
 	if !jobStatus.IsComplete {
 		return fmt.Errorf("BCDA Job did not finish before the timeout of %v", jobStatusTimeout)
 	}
