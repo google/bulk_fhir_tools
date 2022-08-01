@@ -29,10 +29,10 @@ import (
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
-	log "github.com/golang/glog"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bcda"
+	"github.com/google/medical_claims_tools/fhirstore"
 )
 
 func TestMainWrapper(t *testing.T) {
@@ -371,9 +371,11 @@ func TestMainWrapper(t *testing.T) {
 		// TODO(b/213365276): test that bcda V1 with rectify = true results in an
 		// error.
 	}
-
+	t.Parallel()
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Declare test data:
 			file1URLSuffix := "/data/10.ndjson"
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
@@ -459,6 +461,7 @@ func TestMainWrapper(t *testing.T) {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
 				default:
+					t.Errorf("unexpected request to bcda server: %s", req.URL.Path)
 					w.WriteHeader(http.StatusBadRequest)
 				}
 			}))
@@ -471,48 +474,37 @@ func TestMainWrapper(t *testing.T) {
 			gcpDatasetID := "dataset"
 			gcpFHIRStoreID := "fhirID"
 
-			// Set flags for this test case:
 			outputPrefix := t.TempDir()
 
-			defer SaveFlags().Restore()
-			flag.Set("client_id", "id")
-			flag.Set("client_secret", "secret")
-			if !tc.unsetOutputPrefix {
-				flag.Set("output_prefix", outputPrefix)
-			}
-			flag.Set("bcda_server_url", bcdaServer.URL)
-
-			flag.Set("fhir_store_gcp_project", gcpProject)
-			flag.Set("fhir_store_gcp_location", gcpLocation)
-			flag.Set("fhir_store_gcp_dataset_id", gcpDatasetID)
-			flag.Set("fhir_store_id", gcpFHIRStoreID)
-			flag.Set("bcda_job_id", tc.bcdaJobID)
-
-			if tc.fhirStoreEnableBatchUpload {
-				flag.Set("fhir_store_enable_batch_upload", "true")
-			}
-
-			if tc.enableFHIRStore {
-				flag.Set("enable_fhir_store", "true")
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                   "id",
+				clientSecret:               "secret",
+				outputPrefix:               outputPrefix,
+				serverURL:                  bcdaServer.URL,
+				fhirStoreGCPProject:        gcpProject,
+				fhirStoreGCPLocation:       gcpLocation,
+				fhirStoreGCPDatasetID:      gcpDatasetID,
+				fhirStoreID:                gcpFHIRStoreID,
+				bcdaJobID:                  tc.bcdaJobID,
+				fhirStoreEnableBatchUpload: tc.fhirStoreEnableBatchUpload,
+				enableFHIRStore:            tc.enableFHIRStore,
+				rectify:                    tc.rectify,
+				since:                      tc.since,
+				noFailOnUploadErrors:       tc.noFailOnUploadErrors,
+				maxFHIRStoreUploadWorkers:  10,
 			}
 
 			if tc.apiVersion == bcda.V2 {
-				flag.Set("use_v2", "true")
-			}
-			if tc.rectify {
-				flag.Set("rectify", "true")
-			}
-			if tc.since != "" {
-				flag.Set("since", tc.since)
-			}
-			if tc.noFailOnUploadErrors {
-				flag.Set("no_fail_on_upload_errors", "true")
+				cfg.useV2 = true
 			}
 
-			fhirStoreUploadErrorFileDir := ""
 			if tc.enableFHIRStoreUploadErrorFileDir {
-				fhirStoreUploadErrorFileDir = t.TempDir()
-				flag.Set("fhir_store_upload_error_file_dir", fhirStoreUploadErrorFileDir)
+				cfg.fhirStoreUploadErrorFileDir = t.TempDir()
 			}
 
 			var sinceTmpFile *os.File
@@ -528,10 +520,9 @@ func TestMainWrapper(t *testing.T) {
 					t.Fatalf("unable to initialize since_file.txt: %v", err)
 				}
 				sinceTmpFile.Close()
-				flag.Set("since_file", sinceTmpFile.Name())
+				cfg.sinceFile = sinceTmpFile.Name()
 			}
 
-			fhirStoreEndpoint := ""
 			var fhirStoreTests []testhelpers.FHIRStoreTestResource
 			if tc.enableFHIRStore {
 				fhirStoreTests = []testhelpers.FHIRStoreTestResource{
@@ -562,23 +553,22 @@ func TestMainWrapper(t *testing.T) {
 				}
 
 				if tc.fhirStoreFailures {
-					fhirStoreEndpoint = serverAlwaysFails(t)
+					cfg.fhirStoreEndpoint = serverAlwaysFails(t)
 				} else {
 					if !tc.disableFHIRStoreUploadChecks && !tc.fhirStoreEnableBatchUpload {
-						fhirStoreEndpoint = testhelpers.FHIRStoreServer(t, fhirStoreTests, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+						cfg.fhirStoreEndpoint = testhelpers.FHIRStoreServer(t, fhirStoreTests, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 					}
 					if !tc.disableFHIRStoreUploadChecks && tc.fhirStoreEnableBatchUpload {
 						expectedResources := [][]byte{file1Data, file2DataRectified, file3Data}
 						// Note that differing batch upload sizes are tested more
 						// extensively in the TestMainWrapper_BatchUploadSize test below.
 						expectedBatchSize := 1 // this is because we have one uploader per data file, and per data file there's only one resource.
-						fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, expectedBatchSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+						cfg.fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, expectedBatchSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 					}
 				}
 			}
 
 			// Run mainWrapper:
-			cfg := mainWrapperConfig{fhirStoreEndpoint: fhirStoreEndpoint}
 			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
 				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 			}
@@ -591,7 +581,7 @@ func TestMainWrapper(t *testing.T) {
 						wantErrors = append(wantErrors, testhelpers.ErrorNDJSONLine{Err: "error from API server: status 500 500 Internal Server Error:  error was received from the Healthcare API server", FHIRResource: string(ft.Data)})
 					}
 				}
-				testhelpers.CheckErrorNDJSONFile(t, fhirStoreUploadErrorFileDir, wantErrors)
+				testhelpers.CheckErrorNDJSONFile(t, cfg.fhirStoreUploadErrorFileDir, wantErrors)
 			}
 
 			// Checks that should only run if wantError is nil.
@@ -668,9 +658,11 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 			apiVersion: bcda.V2,
 		},
 	}
-
+	t.Parallel()
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 			exportEndpoint := "/api/v1/Group/all/$export"
@@ -717,20 +709,26 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
-			defer SaveFlags().Restore()
-			flag.Set("client_id", "id")
-			flag.Set("client_secret", "secret")
-			flag.Set("output_prefix", outputPrefix)
-			flag.Set("bcda_server_url", bcdaServer.URL)
+			sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                  "id",
+				clientSecret:              "secret",
+				outputPrefix:              outputPrefix,
+				serverURL:                 bcdaServer.URL,
+				sinceFile:                 sinceFilePath,
+				maxFHIRStoreUploadWorkers: 10,
+			}
 
 			if tc.apiVersion == bcda.V2 {
-				flag.Set("use_v2", "true")
+				cfg.useV2 = true
 			}
-			sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
-			flag.Set("since_file", sinceFilePath)
 
 			// Run mainWrapper:
-			cfg := mainWrapperConfig{fhirStoreEndpoint: ""}
 			if err := mainWrapper(cfg); err != nil {
 				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 			}
@@ -771,8 +769,11 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 		},
 	}
 
+	t.Parallel()
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 			exportEndpoint := "/api/v1/Group/all/$export"
@@ -823,18 +824,24 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
-			defer SaveFlags().Restore()
-			flag.Set("client_id", "id")
-			flag.Set("client_secret", "secret")
-			flag.Set("output_prefix", outputPrefix)
-			flag.Set("bcda_server_url", bcdaServer.URL)
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                  "id",
+				clientSecret:              "secret",
+				outputPrefix:              outputPrefix,
+				serverURL:                 bcdaServer.URL,
+				maxFHIRStoreUploadWorkers: 10,
+			}
 
 			if tc.apiVersion == bcda.V2 {
-				flag.Set("use_v2", "true")
+				cfg.useV2 = true
 			}
 
 			// Run mainWrapper:
-			cfg := mainWrapperConfig{fhirStoreEndpoint: ""}
 			if err := mainWrapper(cfg); err != nil {
 				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 			}
@@ -912,9 +919,11 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			wantError:          bcda.ErrorRetryableHTTPStatus,
 		},
 	}
-
+	t.Parallel()
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 			exportEndpoint := "/api/v1/Group/all/$export"
@@ -936,7 +945,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				getDataCalled.Increment()
 				if authCalled.Value() < tc.numRetriesBeforeOK+1 { // plus 1 because auth always called once at client init.
-					log.Error(authCalled.Value())
 					w.WriteHeader(tc.httpErrorToRetrun)
 					return
 				}
@@ -965,18 +973,24 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
-			defer SaveFlags().Restore()
-			flag.Set("client_id", "id")
-			flag.Set("client_secret", "secret")
-			flag.Set("output_prefix", outputPrefix)
-			flag.Set("bcda_server_url", bcdaServer.URL)
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                  "id",
+				clientSecret:              "secret",
+				outputPrefix:              outputPrefix,
+				serverURL:                 bcdaServer.URL,
+				maxFHIRStoreUploadWorkers: 10,
+			}
 
 			if tc.apiVersion == bcda.V2 {
-				flag.Set("use_v2", "true")
+				cfg.useV2 = true
 			}
 
 			// Run mainWrapper:
-			cfg := mainWrapperConfig{fhirStoreEndpoint: ""}
 			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
 				t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, tc.wantError)
 			}
@@ -1023,8 +1037,11 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 		},
 	}
 
+	t.Parallel()
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// File 1 contains 3 Patient resources.
 			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 			patient2 := `{"resourceType":"Patient","id":"PatientID2"}`
@@ -1074,42 +1091,100 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 
 			// Set minimal flags for this test case:
 			outputPrefix := t.TempDir()
-			defer SaveFlags().Restore()
-			flag.Set("client_id", "id")
-			flag.Set("client_secret", "secret")
-			flag.Set("output_prefix", outputPrefix)
-			flag.Set("bcda_server_url", bcdaServer.URL)
-			flag.Set("rectify", "true")
-
-			flag.Set("max_fhir_store_upload_workers", "1")
-			flag.Set("fhir_store_enable_batch_upload", "true")
-			flag.Set("fhir_store_batch_upload_size", fmt.Sprintf("%d", tc.batchUploadSize))
-
 			gcpProject := "project"
 			gcpLocation := "location"
 			gcpDatasetID := "dataset"
 			gcpFHIRStoreID := "fhirID"
-			flag.Set("fhir_store_gcp_project", gcpProject)
-			flag.Set("fhir_store_gcp_location", gcpLocation)
-			flag.Set("fhir_store_gcp_dataset_id", gcpDatasetID)
-			flag.Set("fhir_store_id", gcpFHIRStoreID)
-			flag.Set("enable_fhir_store", "true")
+
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                   "id",
+				clientSecret:               "secret",
+				outputPrefix:               outputPrefix,
+				serverURL:                  bcdaServer.URL,
+				fhirStoreGCPProject:        gcpProject,
+				fhirStoreGCPLocation:       gcpLocation,
+				fhirStoreGCPDatasetID:      gcpDatasetID,
+				fhirStoreID:                gcpFHIRStoreID,
+				fhirStoreEnableBatchUpload: true,
+				fhirStoreBatchUploadSize:   tc.batchUploadSize,
+				enableFHIRStore:            true,
+				rectify:                    true,
+				maxFHIRStoreUploadWorkers:  1,
+			}
 
 			if tc.apiVersion == bcda.V2 {
-				flag.Set("use_v2", "true")
+				cfg.useV2 = true
 			}
 
 			expectedResources := [][]byte{[]byte(patient1), []byte(patient2), []byte(patient3)}
-			fhirStoreEndpoint := testhelpers.FHIRStoreServerBatch(t, expectedResources, tc.batchUploadSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+			cfg.fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, tc.batchUploadSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 
 			// Run mainWrapper:
-			cfg := mainWrapperConfig{fhirStoreEndpoint: fhirStoreEndpoint}
 			if err := mainWrapper(cfg); err != nil {
 				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 			}
 
 		})
 	}
+}
+
+func TestBuildMainWrapperConfig(t *testing.T) {
+	// Set every flag, and see that it is built into mainWrapper correctly.
+	defer SaveFlags().Restore()
+	flag.Set("client_id", "clientID")
+	flag.Set("client_secret", "clientSecret")
+	flag.Set("output_prefix", "outputPrefix")
+	flag.Set("use_v2", "true")
+	flag.Set("rectify", "true")
+	flag.Set("enable_fhir_store", "true")
+	flag.Set("max_fhir_store_upload_workers", "99")
+	flag.Set("fhir_store_enable_batch_upload", "true")
+	flag.Set("fhir_store_batch_upload_size", "10")
+	flag.Set("fhir_store_gcp_project", "project")
+	flag.Set("fhir_store_gcp_location", "location")
+	flag.Set("fhir_store_gcp_dataset_id", "dataset")
+	flag.Set("fhir_store_id", "id")
+	flag.Set("fhir_store_upload_error_file_dir", "uploadDir")
+	flag.Set("fhir_store_enable_batch_upload", "true")
+	flag.Set("fhir_store_batch_upload_size", "10")
+	flag.Set("bcda_server_url", "url")
+	flag.Set("since", "12345")
+	flag.Set("since_file", "sinceFile")
+	flag.Set("no_fail_on_upload_errors", "true")
+	flag.Set("bcda_job_id", "jobID")
+
+	expectedCfg := mainWrapperConfig{
+		fhirStoreEndpoint:           fhirstore.DefaultHealthcareEndpoint,
+		clientID:                    "clientID",
+		clientSecret:                "clientSecret",
+		outputPrefix:                "outputPrefix",
+		useV2:                       true,
+		rectify:                     true,
+		enableFHIRStore:             true,
+		maxFHIRStoreUploadWorkers:   99,
+		fhirStoreGCPProject:         "project",
+		fhirStoreGCPLocation:        "location",
+		fhirStoreGCPDatasetID:       "dataset",
+		fhirStoreID:                 "id",
+		fhirStoreUploadErrorFileDir: "uploadDir",
+		fhirStoreEnableBatchUpload:  true,
+		fhirStoreBatchUploadSize:    10,
+		serverURL:                   "url",
+		since:                       "12345",
+		sinceFile:                   "sinceFile",
+		noFailOnUploadErrors:        true,
+		bcdaJobID:                   "jobID",
+	}
+
+	if diff := cmp.Diff(buildMainWrapperConfig(), expectedCfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
+		t.Errorf("buildMainWrapperConfig unexpected diff: %s", diff)
+	}
+
 }
 
 // serverAlwaysFails returns a server that always fails with a 500 error code.

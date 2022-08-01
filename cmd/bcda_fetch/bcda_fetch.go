@@ -54,11 +54,6 @@ var (
 	bcdaJobID                   = flag.String("bcda_job_id", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job ID provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
 )
 
-// Note that counters are initialized in mainWrapper.
-
-// fhirStoreUploadErrorCounter is a counter for FHIR store upload failures.
-var fhirStoreUploadErrorCounter *counter.Counter
-
 var (
 	errInvalidSince            = errors.New("invalid since timestamp")
 	errUploadFailures          = errors.New("fhir store upload failures")
@@ -81,7 +76,7 @@ const (
 
 func main() {
 	flag.Parse()
-	if err := mainWrapper(defaultMainWrapperConfig()); err != nil {
+	if err := mainWrapper(buildMainWrapperConfig()); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -89,35 +84,35 @@ func main() {
 // mainWrapper allows for easier testing of the main function.
 func mainWrapper(cfg mainWrapperConfig) error {
 	// Init counters
-	fhirStoreUploadErrorCounter = counter.New()
+	fhirStoreUploadErrorCounter := counter.New()
 
-	if *clientID == "" || *clientSecret == "" {
+	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
 	}
 
-	if *enableFHIRStore && (*fhirStoreGCPProject == "" ||
-		*fhirStoreGCPLocation == "" ||
-		*fhirStoreGCPDatasetID == "" ||
-		*fhirStoreID == "") {
+	if cfg.enableFHIRStore && (cfg.fhirStoreGCPProject == "" ||
+		cfg.fhirStoreGCPLocation == "" ||
+		cfg.fhirStoreGCPDatasetID == "" ||
+		cfg.fhirStoreID == "") {
 		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
 	}
 
-	if *enableFHIRStore && !*rectify {
+	if cfg.enableFHIRStore && !cfg.rectify {
 		return errMustRectifyForFHIRStore
 	}
 
-	if *outputPrefix == "" && !*enableFHIRStore {
+	if cfg.outputPrefix == "" && !cfg.enableFHIRStore {
 		log.Warningln("outputPrefix is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
 	apiVersion := bcda.V1
-	if *useV2 {
+	if cfg.useV2 {
 		apiVersion = bcda.V2
 	}
 
-	cl, err := bcda.NewClient(*serverURL, apiVersion, *clientID, *clientSecret)
+	cl, err := bcda.NewClient(cfg.serverURL, apiVersion, cfg.clientID, cfg.clientSecret)
 	if err != nil {
-		return fmt.Errorf("NewClient(%v, %v) error: %v", serverURL, apiVersion, err)
+		return fmt.Errorf("NewClient(%v, %v) error: %v", cfg.serverURL, apiVersion, err)
 	}
 
 	_, err = cl.Authenticate()
@@ -125,13 +120,13 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return fmt.Errorf("Error authenticating with API: %v", err)
 	}
 
-	parsedSince, err := getSince()
+	parsedSince, err := getSince(cfg.since, cfg.sinceFile)
 	if err != nil {
 		return err
 	}
 
-	jobID := *bcdaJobID
-	if *bcdaJobID == "" {
+	jobID := cfg.bcdaJobID
+	if cfg.bcdaJobID == "" {
 		jobID, err = cl.StartBulkDataExport(bcda.AllResourceTypes, parsedSince)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
@@ -156,24 +151,24 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	log.Infof("BCDA Job Finished. Transaction Time: %v", fhir.ToFHIRInstant(jobStatus.TransactionTime))
 	log.Infof("Begin BCDA data download and write out to disk.")
-	if *enableFHIRStore {
+	if cfg.enableFHIRStore {
 		log.Infof("Data will also be uploaded to FHIR store based on provided parmaters.")
 	}
 
 	for r, urls := range jobStatus.ResultURLs {
 		for i, url := range urls {
 			filePrefix := ""
-			if *outputPrefix != "" {
-				filePrefix = fmt.Sprintf("%s_%s_%d", *outputPrefix, r, i)
+			if cfg.outputPrefix != "" {
+				filePrefix = fmt.Sprintf("%s_%s_%d", cfg.outputPrefix, r, i)
 			}
 
-			r, err := getDataOrExit(cl, url, *clientID, *clientSecret)
+			r, err := getDataOrExit(cl, url, cfg.clientID, cfg.clientSecret)
 			if err != nil {
 				return err
 			}
 			defer r.Close()
-			if *rectify {
-				rectifyAndWrite(r, filePrefix, cfg)
+			if cfg.rectify {
+				rectifyAndWrite(r, filePrefix, cfg, fhirStoreUploadErrorCounter)
 			} else {
 				writeData(r, filePrefix)
 			}
@@ -183,15 +178,15 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	// Check failure counters.
 	if errCnt := fhirStoreUploadErrorCounter.CloseAndGetCount(); errCnt > 0 {
 		log.Warningf("non-zero FHIR Store Upload Errors: %d", errCnt)
-		if !*noFailOnUploadErrors {
+		if !cfg.noFailOnUploadErrors {
 			return fmt.Errorf("non-zero FHIR store upload errors (check logs for details): %d %w", errCnt, errUploadFailures)
 		}
 	}
 
 	// Write out since file time. This should only be written if there are no
 	// errors during the fetch process.
-	if *sinceFile != "" {
-		f, err := os.OpenFile(*sinceFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if cfg.sinceFile != "" {
+		f, err := os.OpenFile(cfg.sinceFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return err
 		}
@@ -238,7 +233,7 @@ func writeData(r io.Reader, filePrefix string) {
 	}
 }
 
-func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
+func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig, fhirStoreUploadErrorCounter *counter.Counter) {
 	var w io.WriteCloser = nil
 	if filePrefix != "" {
 		var err error
@@ -251,15 +246,15 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 
 	uploader, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
 		FHIRStoreEndpoint:   cfg.fhirStoreEndpoint,
-		FHIRStoreID:         *fhirStoreID,
-		FHIRProjectID:       *fhirStoreGCPProject,
-		FHIRLocation:        *fhirStoreGCPLocation,
-		FHIRDatasetID:       *fhirStoreGCPDatasetID,
-		MaxWorkers:          *maxFHIRStoreUploadWorkers,
+		FHIRStoreID:         cfg.fhirStoreID,
+		FHIRProjectID:       cfg.fhirStoreGCPProject,
+		FHIRLocation:        cfg.fhirStoreGCPLocation,
+		FHIRDatasetID:       cfg.fhirStoreGCPDatasetID,
+		MaxWorkers:          cfg.maxFHIRStoreUploadWorkers,
 		ErrorCounter:        fhirStoreUploadErrorCounter,
-		ErrorFileOutputPath: *fhirStoreUploadErrorFileDir,
-		BatchUpload:         *fhirStoreEnableBatchUpload,
-		BatchSize:           *fhirStoreBatchUploadSize,
+		ErrorFileOutputPath: cfg.fhirStoreUploadErrorFileDir,
+		BatchUpload:         cfg.fhirStoreEnableBatchUpload,
+		BatchSize:           cfg.fhirStoreBatchUploadSize,
 	})
 
 	if err != nil {
@@ -277,7 +272,7 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 		}
 
 		// Add this FHIR resource to the queue to be written to FHIR store.
-		if *enableFHIRStore {
+		if cfg.enableFHIRStore {
 			uploader.Upload(fhirOut)
 		}
 
@@ -291,7 +286,7 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 	// Since there is only one sender goroutine (this one), it should be safe to
 	// indicate we're done sending here, after we have finished sending all the
 	// work in the for loop above.
-	if *enableFHIRStore {
+	if cfg.enableFHIRStore {
 		uploader.DoneUploading()
 		if err := uploader.Wait(); err != nil {
 			log.Warningf("error closing the uploader: %v", err)
@@ -299,29 +294,29 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig) {
 	}
 }
 
-func getSince() (time.Time, error) {
+func getSince(since, sinceFile string) (time.Time, error) {
 	parsedSince := time.Time{}
-	if *since != "" && *sinceFile != "" {
+	if since != "" && sinceFile != "" {
 		return parsedSince, errors.New("only one of since or since_file flags may be set (cannot set both)")
 	}
 
 	var err error
-	if *since != "" {
-		parsedSince, err = fhir.ParseFHIRInstant(*since)
+	if since != "" {
+		parsedSince, err = fhir.ParseFHIRInstant(since)
 		if err != nil {
-			return parsedSince, fmt.Errorf("invalid since timestamp provided (%s), should be in form YYYY-MM-DDThh:mm:ss.sss+zz:zz %w", *since, errInvalidSince)
+			return parsedSince, fmt.Errorf("invalid since timestamp provided (%s), should be in form YYYY-MM-DDThh:mm:ss.sss+zz:zz %w", since, errInvalidSince)
 		}
 	}
 
-	if *sinceFile != "" {
-		if info, err := os.Stat(*sinceFile); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
+	if sinceFile != "" {
+		if info, err := os.Stat(sinceFile); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
 			// There is no since information, since this is the first time fetch is being
 			// called on a new file or an empty file--so we return an empty time to fetch
 			// all data the first time.
 			return time.Time{}, nil
 		}
 
-		f, err := os.Open(*sinceFile)
+		f, err := os.Open(sinceFile)
 		if err != nil {
 			return parsedSince, err
 		}
@@ -351,10 +346,49 @@ func getSince() (time.Time, error) {
 // struct in the future.
 type mainWrapperConfig struct {
 	fhirStoreEndpoint string
+	// Fields that originate from flags:
+	clientID                    string
+	clientSecret                string
+	outputPrefix                string
+	useV2                       bool
+	rectify                     bool
+	enableFHIRStore             bool
+	maxFHIRStoreUploadWorkers   int
+	fhirStoreGCPProject         string
+	fhirStoreGCPLocation        string
+	fhirStoreGCPDatasetID       string
+	fhirStoreID                 string
+	fhirStoreUploadErrorFileDir string
+	fhirStoreEnableBatchUpload  bool
+	fhirStoreBatchUploadSize    int
+	serverURL                   string
+	since                       string
+	sinceFile                   string
+	noFailOnUploadErrors        bool
+	bcdaJobID                   string
 }
 
-func defaultMainWrapperConfig() mainWrapperConfig {
+func buildMainWrapperConfig() mainWrapperConfig {
 	return mainWrapperConfig{
-		fhirStoreEndpoint: fhirstore.DefaultHealthcareEndpoint,
+		fhirStoreEndpoint:           fhirstore.DefaultHealthcareEndpoint,
+		clientID:                    *clientID,
+		clientSecret:                *clientSecret,
+		outputPrefix:                *outputPrefix,
+		useV2:                       *useV2,
+		rectify:                     *rectify,
+		enableFHIRStore:             *enableFHIRStore,
+		maxFHIRStoreUploadWorkers:   *maxFHIRStoreUploadWorkers,
+		fhirStoreGCPProject:         *fhirStoreGCPProject,
+		fhirStoreGCPLocation:        *fhirStoreGCPLocation,
+		fhirStoreGCPDatasetID:       *fhirStoreGCPDatasetID,
+		fhirStoreID:                 *fhirStoreID,
+		fhirStoreUploadErrorFileDir: *fhirStoreUploadErrorFileDir,
+		fhirStoreEnableBatchUpload:  *fhirStoreEnableBatchUpload,
+		fhirStoreBatchUploadSize:    *fhirStoreBatchUploadSize,
+		serverURL:                   *serverURL,
+		since:                       *since,
+		sinceFile:                   *sinceFile,
+		noFailOnUploadErrors:        *noFailOnUploadErrors,
+		bcdaJobID:                   *bcdaJobID,
 	}
 }
