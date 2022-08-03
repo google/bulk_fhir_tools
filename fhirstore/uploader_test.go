@@ -209,7 +209,7 @@ func TestUploader_BatchDefaultBatchSize(t *testing.T) {
 		}
 	}))
 	errCounter := counter.New()
-	numWorkers := 2
+	numWorkers := 1
 
 	u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
 		FHIRStoreEndpoint: server.URL,

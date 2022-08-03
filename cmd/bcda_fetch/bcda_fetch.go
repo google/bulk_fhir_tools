@@ -27,6 +27,7 @@ import (
 	"flag"
 	log "github.com/golang/glog"
 	"github.com/google/medical_claims_tools/bcda"
+	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/internal/counter"
@@ -127,14 +128,14 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	jobID := cfg.bcdaJobID
 	if cfg.bcdaJobID == "" {
-		jobID, err = cl.StartBulkDataExport(bcda.AllResourceTypes, parsedSince)
+		jobID, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
 		}
 		log.Infof("Started BCDA job: %s\n", jobID)
 	}
 
-	var monitorResult *bcda.MonitorResult
+	var monitorResult *bulkfhir.MonitorResult
 	for monitorResult = range cl.MonitorJobStatus(jobID, jobStatusPeriod, jobStatusTimeout) {
 		if monitorResult.Error != nil {
 			log.Errorf("error while checking the jobStatus: %v", err)
@@ -198,12 +199,12 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	return nil
 }
 
-func getDataOrExit(cl *bcda.Client, url, clientID, clientSecret string) (io.ReadCloser, error) {
+func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.ReadCloser, error) {
 	r, err := cl.GetData(url)
 	numRetries := 0
 	// Retry both unauthorized and other retryable errors by re-authenticating,
 	// as sometimes they appear to be related.
-	for (errors.Is(err, bcda.ErrorUnauthorized) || errors.Is(err, bcda.ErrorRetryableHTTPStatus)) && numRetries < 5 {
+	for (errors.Is(err, bulkfhir.ErrorUnauthorized) || errors.Is(err, bulkfhir.ErrorRetryableHTTPStatus)) && numRetries < 5 {
 		time.Sleep(2 * time.Second)
 		log.Infof("Got retryable error from BCDA. Re-authenticating and trying again.")
 		if _, err := cl.Authenticate(); err != nil {

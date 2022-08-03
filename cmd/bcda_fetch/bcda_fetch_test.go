@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bcda"
+	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 )
 
@@ -883,14 +884,14 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			apiVersion:         bcda.V1,
 			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 6,
-			wantError:          bcda.ErrorUnauthorized,
+			wantError:          bulkfhir.ErrorUnauthorized,
 		},
 		{
 			name:               "BCDAV2TooManyRetries",
 			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 6,
-			wantError:          bcda.ErrorUnauthorized,
+			wantError:          bulkfhir.ErrorUnauthorized,
 		},
 		{
 			name:               "BCDAV1With404",
@@ -909,14 +910,14 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			apiVersion:         bcda.V1,
 			httpErrorToRetrun:  http.StatusNotFound,
 			numRetriesBeforeOK: 6,
-			wantError:          bcda.ErrorRetryableHTTPStatus,
+			wantError:          bulkfhir.ErrorRetryableHTTPStatus,
 		},
 		{
 			name:               "BCDAV2TooManyRetriesWith404",
 			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusNotFound,
 			numRetriesBeforeOK: 6,
-			wantError:          bcda.ErrorRetryableHTTPStatus,
+			wantError:          bulkfhir.ErrorRetryableHTTPStatus,
 		},
 	}
 	t.Parallel()
