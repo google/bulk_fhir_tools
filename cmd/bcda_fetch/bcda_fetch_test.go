@@ -56,7 +56,7 @@ func TestMainWrapper(t *testing.T) {
 		// set to true.
 		fhirStoreFailures          bool
 		noFailOnUploadErrors       bool
-		bcdaJobID                  string
+		bcdaJobURLSuffix           string
 		fhirStoreEnableBatchUpload bool
 		// unsetOutputPrefix sets the outputPrefix to empty string if true.
 		unsetOutputPrefix bool
@@ -253,20 +253,20 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStoreUploadErrorFileDir: true,
 		},
 		{
-			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
-			rectify:         true,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V2,
-			since:           "2006-01-02T15:04:05.000-07:00",
-			bcdaJobID:       "999",
+			name:             "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
+			rectify:          true,
+			enableFHIRStore:  true,
+			apiVersion:       bcda.V2,
+			since:            "2006-01-02T15:04:05.000-07:00",
+			bcdaJobURLSuffix: "/jobs/999",
 		},
 		{
-			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
-			rectify:         true,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V1,
-			since:           "2006-01-02T15:04:05.000-07:00",
-			bcdaJobID:       "999",
+			name:             "SinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
+			rectify:          true,
+			enableFHIRStore:  true,
+			apiVersion:       bcda.V1,
+			since:            "2006-01-02T15:04:05.000-07:00",
+			bcdaJobURLSuffix: "/jobs/999",
 		},
 		{
 			name:                     "SinceFileProvidedWithBCDAV2WithBCDAJobId",
@@ -276,7 +276,7 @@ func TestMainWrapper(t *testing.T) {
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobID:                "999",
+			bcdaJobURLSuffix:         "/jobs/999",
 		},
 		{
 			name:                     "SinceFileProvidedWithBCDAV1WithBCDAJobId",
@@ -286,7 +286,7 @@ func TestMainWrapper(t *testing.T) {
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobID:                "999",
+			bcdaJobURLSuffix:         "/jobs/999",
 		},
 		{
 			name:                     "SinceFileEmptyProvidedWithBCDAV2WithBCDAJobId",
@@ -295,7 +295,7 @@ func TestMainWrapper(t *testing.T) {
 			apiVersion:               bcda.V2,
 			sinceFileContent:         []byte(""),
 			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobID:                "999",
+			bcdaJobURLSuffix:         "/jobs/999",
 		},
 		// Only testing cases with FHIR Store enabled for setting outputPrefix to ""
 		{
@@ -318,7 +318,7 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore:   true,
 			apiVersion:        bcda.V2,
 			since:             "2006-01-02T15:04:05.000-07:00",
-			bcdaJobID:         "999",
+			bcdaJobURLSuffix:  "/jobs/999",
 			unsetOutputPrefix: true,
 		},
 		{
@@ -327,7 +327,7 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore:   true,
 			apiVersion:        bcda.V1,
 			since:             "2006-01-02T15:04:05.000-07:00",
-			bcdaJobID:         "999",
+			bcdaJobURLSuffix:  "/jobs/999",
 			unsetOutputPrefix: true,
 		},
 		{
@@ -338,7 +338,7 @@ func TestMainWrapper(t *testing.T) {
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobID:                "999",
+			bcdaJobURLSuffix:         "/jobs/999",
 			unsetOutputPrefix:        true,
 		},
 		{
@@ -349,7 +349,7 @@ func TestMainWrapper(t *testing.T) {
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobID:                "999",
+			bcdaJobURLSuffix:         "/jobs/999",
 			unsetOutputPrefix:        true,
 		},
 		// Batch upload tests cases
@@ -402,14 +402,12 @@ func TestMainWrapper(t *testing.T) {
 			}
 
 			exportEndpoint := "/api/v1/Group/all/$export"
-			expectedJobID := "1234"
-			if tc.bcdaJobID != "" {
-				expectedJobID = tc.bcdaJobID
+			expectedJobURLSuffix := "/jobs/1234"
+			if tc.bcdaJobURLSuffix != "" {
+				expectedJobURLSuffix = tc.bcdaJobURLSuffix
 			}
-			jobsEndpoint := fmt.Sprintf("/api/v1/jobs/%s", expectedJobID)
 			if tc.apiVersion == bcda.V2 {
 				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = fmt.Sprintf("/api/v2/jobs/%s", expectedJobID)
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -437,6 +435,8 @@ func TestMainWrapper(t *testing.T) {
 
 			var exportEndpointCalled mutexCounter
 
+			jobStatusURL := ""
+
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
@@ -456,9 +456,9 @@ func TestMainWrapper(t *testing.T) {
 							return
 						}
 					}
-					w.Header()["Content-Location"] = []string{"some/info/1234"}
+					w.Header()["Content-Location"] = []string{jobStatusURL}
 					w.WriteHeader(http.StatusAccepted)
-				case jobsEndpoint:
+				case expectedJobURLSuffix:
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
 				default:
@@ -467,6 +467,9 @@ func TestMainWrapper(t *testing.T) {
 				}
 			}))
 			defer bcdaServer.Close()
+
+			// Set jobStatusURL after we have a bcdaServer base url:
+			jobStatusURL = bcdaServer.URL + expectedJobURLSuffix
 
 			// FHIR Store values (always set, but enable_fhir_store is set based on the
 			// test case).
@@ -491,7 +494,7 @@ func TestMainWrapper(t *testing.T) {
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
 				fhirStoreID:                gcpFHIRStoreID,
-				bcdaJobID:                  tc.bcdaJobID,
+				bcdaJobURL:                 bcdaServer.URL + expectedJobURLSuffix,
 				fhirStoreEnableBatchUpload: tc.fhirStoreEnableBatchUpload,
 				enableFHIRStore:            tc.enableFHIRStore,
 				rectify:                    tc.rectify,
@@ -598,7 +601,7 @@ func TestMainWrapper(t *testing.T) {
 					expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
 				}
 
-				if tc.bcdaJobID != "" {
+				if tc.bcdaJobURLSuffix != "" {
 					if got := exportEndpointCalled.Value(); got > 0 {
 						t.Errorf("mainWrapper: when bcdaJobID is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
 					}
@@ -685,6 +688,8 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 			}))
 			defer bcdaResourceServer.Close()
 
+			jobStatusURL := ""
+
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
@@ -697,7 +702,9 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 						w.WriteHeader(http.StatusBadRequest)
 						return
 					}
-					w.Header()["Content-Location"] = []string{"some/info/1234"}
+
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+
 					w.WriteHeader(http.StatusAccepted)
 				case jobsEndpoint:
 					w.WriteHeader(http.StatusOK)
@@ -707,6 +714,8 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 				}
 			}))
 			defer bcdaServer.Close()
+
+			jobStatusURL = bcdaServer.URL + jobsEndpoint
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
@@ -799,6 +808,8 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 			var authCalled mutexCounter
 			var jobsCalled mutexCounter
 
+			jobStatusURL := ""
+
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
@@ -806,7 +817,9 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token"}`))
 				case exportEndpoint:
-					w.Header()["Content-Location"] = []string{"some/info/1234"}
+
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+
 					w.WriteHeader(http.StatusAccepted)
 				case jobsEndpoint:
 					jobsCalled.Increment()
@@ -822,6 +835,8 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 				}
 			}))
 			defer bcdaServer.Close()
+
+			jobStatusURL = bcdaServer.URL + jobsEndpoint
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
@@ -928,10 +943,10 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 			exportEndpoint := "/api/v1/Group/all/$export"
-			jobsEndpoint := "/api/v1/jobs/1234"
+			jobURLSuffix := "/api/v1/jobs/1234"
 			if tc.apiVersion == bcda.V2 {
 				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = "/api/v2/jobs/1234"
+				jobURLSuffix = "/api/v2/jobs/1234"
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -954,6 +969,8 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			}))
 			defer bcdaResourceServer.Close()
 
+			jobStatusURL := ""
+
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
@@ -961,9 +978,11 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token"}`))
 				case exportEndpoint:
-					w.Header()["Content-Location"] = []string{"some/info/1234"}
+
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+
 					w.WriteHeader(http.StatusAccepted)
-				case jobsEndpoint:
+				case jobURLSuffix:
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 				default:
@@ -971,6 +990,8 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				}
 			}))
 			defer bcdaServer.Close()
+
+			jobStatusURL = bcdaServer.URL + jobURLSuffix
 
 			// Set flags for this test case:
 			outputPrefix := t.TempDir()
@@ -1005,6 +1026,18 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMainWrapper_WithDeprecatedJobIDFlag(t *testing.T) {
+	t.Parallel()
+	cfg := mainWrapperConfig{
+		clientID:     "ID",
+		clientSecret: "secret",
+		bcdaJobID:    "1234",
+	}
+	if err := mainWrapper(cfg); !errors.Is(err, errBCDAJobIDDeprecated) {
+		t.Errorf("mainWrapper unexpected error. got: %v, want: %v", err, errBCDAJobIDDeprecated)
 	}
 }
 
@@ -1049,14 +1082,16 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			patient3 := `{"resourceType":"Patient","id":"PatientID3"}`
 			file1Data := []byte(patient1 + "\n" + patient2 + "\n" + patient3)
 			exportEndpoint := "/api/v1/Group/all/$export"
-			jobsEndpoint := "/api/v1/jobs/1234"
+			jobStatusURLSuffix := "/api/v1/jobs/1234"
 			if tc.apiVersion == bcda.V2 {
 				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = "/api/v2/jobs/1234"
+				jobStatusURLSuffix = "/api/v2/jobs/1234"
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
 			// Setup BCDA test servers:
+
+			jobStatusURL := ""
 
 			// A seperate resource server is needed during testing, so that we can send
 			// the jobsEndpoint response in the bcdaServer that includes a URL for the
@@ -1079,9 +1114,11 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 						w.WriteHeader(http.StatusBadRequest)
 						return
 					}
-					w.Header()["Content-Location"] = []string{"some/info/1234"}
+
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+
 					w.WriteHeader(http.StatusAccepted)
-				case jobsEndpoint:
+				case jobStatusURLSuffix:
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 				default:
@@ -1089,6 +1126,8 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				}
 			}))
 			defer bcdaServer.Close()
+
+			jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
 
 			// Set minimal flags for this test case:
 			outputPrefix := t.TempDir()
@@ -1157,7 +1196,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("since", "12345")
 	flag.Set("since_file", "sinceFile")
 	flag.Set("no_fail_on_upload_errors", "true")
-	flag.Set("bcda_job_id", "jobID")
+	flag.Set("bcda_job_url", "jobURL")
 
 	expectedCfg := mainWrapperConfig{
 		fhirStoreEndpoint:           fhirstore.DefaultHealthcareEndpoint,
@@ -1179,7 +1218,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		since:                       "12345",
 		sinceFile:                   "sinceFile",
 		noFailOnUploadErrors:        true,
-		bcdaJobID:                   "jobID",
+		bcdaJobURL:                  "jobURL",
 	}
 
 	if diff := cmp.Diff(buildMainWrapperConfig(), expectedCfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {

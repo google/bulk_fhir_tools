@@ -114,7 +114,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		expectedAcceptValue := "application/fhir+json"
 		expectedSince := "2013-12-09T11:00:00.123+00:00"
 		expectedTypes := "Patient,ExplanationOfBenefit,Coverage"
-		expectedJobID := "jobid"
+		expectedJobStatusURL := "/some/url/job/1"
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.URL.Path != expectedPath {
@@ -150,18 +150,18 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 				t.Errorf("StartBulkDataExport(%v, %v) did not sent expected Accept header value of %v", resourceTypes, since, expectedAcceptValue)
 			}
 
-			w.Header()["Content-Location"] = []string{"some/info/" + expectedJobID}
+			w.Header()["Content-Location"] = []string{expectedJobStatusURL}
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		defer server.Close()
 
 		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-		id, err := cl.StartBulkDataExport(resourceTypes, since)
+		jobURL, err := cl.StartBulkDataExport(resourceTypes, since)
 		if err != nil {
 			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", resourceTypes, since, err)
 		}
-		if id != expectedJobID {
-			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected jobID got: %v, want: %v", resourceTypes, since, id, expectedJobID)
+		if jobURL != expectedJobStatusURL {
+			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected job status URL got: %v, want: %v", resourceTypes, since, jobURL, expectedJobStatusURL)
 		}
 	})
 
@@ -191,7 +191,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				token := "123"
-				expectedJobID := "jobid"
+				expectedJobStatusURL := "/some/url/job/1"
 				// Expected number of header values for _since and _type
 				expectedNumSince := 0
 				expectedNumResourceType := 0
@@ -209,17 +209,17 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 						t.Errorf("StartBulkDataExport(%v, %v): unexpected number of _type params. got: %d, want: %d", tc.resourceTypes, tc.since, got, expectedNumResourceType)
 					}
 
-					w.Header()["Content-Location"] = []string{"some/info/" + expectedJobID}
+					w.Header()["Content-Location"] = []string{expectedJobStatusURL}
 				}))
 				defer server.Close()
 
 				cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-				id, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since)
+				jobURL, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since)
 				if err != nil {
 					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", tc.resourceTypes, tc.since, err)
 				}
-				if id != expectedJobID {
-					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected jobID got: %v, want: %v", tc.resourceTypes, tc.since, id, expectedJobID)
+				if jobURL != expectedJobStatusURL {
+					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected jobID got: %v, want: %v", tc.resourceTypes, tc.since, jobURL, expectedJobStatusURL)
 				}
 			})
 		}
@@ -243,7 +243,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 func TestClient_GetJobStatus(t *testing.T) {
 	t.Run("without token", func(t *testing.T) {
 		c := Client{httpClient: &http.Client{}}
-		_, err := c.JobStatus("id")
+		_, err := c.JobStatus("/some/url")
 		if err != ErrorUnauthorized {
 			t.Errorf("GetJobStatus returned incorrect error. got: %v, want: %v", err, ErrorUnauthorized)
 		}
@@ -252,7 +252,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
 		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: server.URL}
-		_, err := cl.JobStatus("id")
+		_, err := cl.JobStatus(server.URL + "/some/url")
 		if err != ErrorUnauthorized {
 			t.Errorf("GetJobStatus returned unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
 		}
@@ -264,7 +264,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.JobStatus("id")
+		_, err := cl.JobStatus(server.URL + "/some/url")
 		if !errors.Is(err, ErrorUnexpectedNumberOfXProgress) {
 			t.Errorf("JobStatus returned unexpected underlying error. got: %v, want: %v", err, ErrorUnexpectedNumberOfXProgress)
 		}
@@ -274,37 +274,37 @@ func TestClient_GetJobStatus(t *testing.T) {
 		jobID := "id"
 		token := "123"
 
-		expectedPath := fmt.Sprintf("/jobs/%s", jobID)
+		expectedURLSuffix := "/jobs/20"
 		expectedProgress := 60
 		expectedAuth := fmt.Sprintf("Bearer %s", token)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if req.URL.Path != expectedPath {
-				t.Errorf("GetJobStatus(%v) made request with unexpected path. got: %v, want: %v", jobID, req.URL.String(), expectedPath)
+			if req.URL.Path != expectedURLSuffix {
+				t.Errorf("GetJobStatus made request with unexpected path. got: %v, want: %v", req.URL.String(), expectedURLSuffix)
 			}
 
 			authValues, ok := req.Header["Authorization"]
 			if !ok {
-				t.Errorf("GetJobStatus(%v) did not send Authorization header", jobID)
+				t.Errorf("GetJobStatus did not send Authorization header")
 			}
 			if got, want := len(authValues), 1; got != want {
-				t.Errorf("GetJobStatus(%v) sent incorrect number of Authorization header values, got: %d, want: %d", jobID, got, want)
+				t.Errorf("GetJobStatus sent incorrect number of Authorization header values, got: %d, want: %d", got, want)
 			}
 			if got, want := authValues[0], expectedAuth; got != want {
-				t.Errorf("GetJobStatus(%v) sent wrong Authorization header value, got: %s, want: %s", jobID, got, want)
+				t.Errorf("GetJobStatus sent wrong Authorization header value, got: %s, want: %s", got, want)
 			}
 
 			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", expectedProgress)}
 			w.WriteHeader(http.StatusAccepted)
 		}))
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
-		_, err := cl.JobStatus(jobID)
+		jobStatusURL := server.URL + expectedURLSuffix
+		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		_, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobID, err)
 		}
 	})
 
 	t.Run("job in progress", func(t *testing.T) {
-		jobID := "id"
 		token := "123"
 
 		expectedProgress := 60
@@ -312,22 +312,21 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", expectedProgress)}
 			w.WriteHeader(http.StatusAccepted)
 		}))
-
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
-		jobStatus, err := cl.JobStatus(jobID)
+		jobStatusURL := server.URL
+		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobID, err)
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
 		}
 		if jobStatus.IsComplete {
-			t.Errorf("GetJobStatus(%v) got complete JobStatus, expected incomplete", jobID)
+			t.Errorf("GetJobStatus(%v) got complete JobStatus, expected incomplete", jobStatusURL)
 		}
 		if got, want := jobStatus.PercentComplete, expectedProgress; got != want {
-			t.Errorf("GetJobStatus(%v) returned incorrect percent complete: got: %d, want: %d", jobID, got, want)
+			t.Errorf("GetJobStatus(%v) returned incorrect percent complete: got: %d, want: %d", jobStatusURL, got, want)
 		}
 	})
 
 	t.Run("job completed", func(t *testing.T) {
-		jobID := "id"
 		token := "123"
 		transactionTime := "2020-09-17T17:53:11.476Z"
 		expectedTransactionTime := time.Date(2020, 9, 17, 17, 53, 11, 476000000, time.UTC)
@@ -337,31 +336,31 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"%s\"}", expectedResourceType, expectedURL, transactionTime)))
 			w.WriteHeader(http.StatusOK)
 		}))
+		jobStatusURL := server.URL
 
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
-		jobStatus, err := cl.JobStatus(jobID)
+		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobID, err)
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
 		}
 		if !jobStatus.IsComplete {
-			t.Errorf("GetJobStatus(%v) got incomplete JobStatus, expected complete", jobID)
+			t.Errorf("GetJobStatus(%v) got incomplete JobStatus, expected complete", jobStatusURL)
 		}
 		if got, want := len(jobStatus.ResultURLs), 1; got != want {
-			t.Errorf("GetJobStatus(%v) unexpected number of ResultURLs: got: %d, want: %d", jobID, got, want)
+			t.Errorf("GetJobStatus(%v) unexpected number of ResultURLs: got: %d, want: %d", jobStatusURL, got, want)
 		}
 		if _, ok := jobStatus.ResultURLs[Patient]; !ok {
-			t.Errorf("GetJobStatus(%v) ResultURLs no value for key Patient", jobID)
+			t.Errorf("GetJobStatus(%v) ResultURLs no value for key Patient", jobStatusURL)
 		}
 		if got, want := jobStatus.ResultURLs[Patient][0], expectedURL; got != want {
-			t.Errorf("GetJobStatus(%v) ResultURLs returned unexpected value for key Patient: got %s, want %s", jobID, got, want)
+			t.Errorf("GetJobStatus(%v) ResultURLs returned unexpected value for key Patient: got %s, want %s", jobStatusURL, got, want)
 		}
 		if got, want := jobStatus.TransactionTime, expectedTransactionTime; !got.Equal(want) {
-			t.Errorf("GetJobStatus(%v) returned incorrect transaction time: got %s, want %s", jobID, got, want)
+			t.Errorf("GetJobStatus(%v) returned incorrect transaction time: got %s, want %s", jobStatusURL, got, want)
 		}
 	})
 
 	t.Run("job completed multiple url", func(t *testing.T) {
-		jobID := "id"
 		jsonResponse := `{"transactionTime": "2020-09-15T17:53:11.476Z",
 												"output":[
 												{"type": "Patient","url": "url_1"},
@@ -376,14 +375,15 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.Write([]byte(jsonResponse))
 			w.WriteHeader(http.StatusOK)
 		}))
+		jobStatusURL := server.URL
 
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
-		jobStatus, err := cl.JobStatus(jobID)
+		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobID, err)
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
 		}
 		if !jobStatus.IsComplete {
-			t.Errorf("GetJobStatus(%v) got incomplete JobStatus, expected complete", jobID)
+			t.Errorf("GetJobStatus(%v) got incomplete JobStatus, expected complete", jobStatusURL)
 		}
 		expectedMap := map[ResourceType][]string{
 			Patient:              {"url_1", "url_2", "url_3"},
@@ -392,37 +392,37 @@ func TestClient_GetJobStatus(t *testing.T) {
 			OperationOutcome:     {"url_7", "url_8"},
 		}
 		if diff := cmp.Diff(expectedMap, jobStatus.ResultURLs, cmpopts.SortMaps(func(k1, k2 string) bool { return k1 < k2 })); diff != "" {
-			t.Errorf("GetJobStatus(%v) returned unexpected diff (-want +got):\n%s", jobID, diff)
+			t.Errorf("GetJobStatus(%v) returned unexpected diff (-want +got):\n%s", jobStatusURL, diff)
 		}
 	})
 
 	t.Run("invalid progress", func(t *testing.T) {
-		jobID := "id"
 		token := "123"
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header()["X-Progress"] = []string{"invalid"}
 			w.WriteHeader(http.StatusAccepted)
 		}))
+		jobStatusURL := server.URL
 
 		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.JobStatus(jobID)
+		_, err := cl.JobStatus(jobStatusURL)
 		if err != ErrorUnableToParseProgress {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: got: %v, want: %v", err, jobID, ErrorUnableToParseProgress)
+			t.Errorf("GetJobStatus(%v) returned unexpected error: got: %v, want: %v", err, jobStatusURL, ErrorUnableToParseProgress)
 		}
 	})
 
 	t.Run("invalid transaction time", func(t *testing.T) {
-		jobID := "id"
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(`{"output": [{"type": "Patient", "url": "url"}], "transactionTime" : "2013-12-09T11:00Z"}`))
 			w.WriteHeader(http.StatusOK)
 		}))
+		jobStatusURL := server.URL
 
 		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.JobStatus(jobID)
+		_, err := cl.JobStatus(jobStatusURL)
 		if err == nil {
-			t.Errorf("GetJobStatus(%v) succeeded, want error", jobID)
+			t.Errorf("GetJobStatus(%v) succeeded, want error", jobStatusURL)
 		}
 	})
 }
@@ -517,33 +517,32 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		period := 2 * time.Millisecond
 		timeout := 20 * time.Millisecond
-		jobID := "job"
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			// Indicates job in progress
 			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 60)}
 			w.WriteHeader(http.StatusAccepted)
 		}))
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
+		jobStatusURL := server.URL
+		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
 		results := make([]*MonitorResult, 0, 1)
-		for st := range cl.MonitorJobStatus(jobID, period, timeout) {
+		for st := range cl.MonitorJobStatus(jobStatusURL, period, timeout) {
 			results = append(results, st)
 		}
 		if got, want := results[len(results)-1].Error, ErrorTimeout; got != want {
-			t.Errorf("MonitorJobStatus(%v,%v,%v) did not return correct error. got: %v, want: %v", jobID, period, timeout, got, want)
+			t.Errorf("MonitorJobStatus(%v,%v,%v) did not return correct error. got: %v, want: %v", jobStatusURL, period, timeout, got, want)
 		}
 	})
 
 	t.Run("valid cases", func(t *testing.T) {
-		jobID := "456"
-		wantPath := fmt.Sprintf("/jobs/%s", jobID)
+		jobStatusURLSuffix := "/jobs/20"
 		wantResource := Patient
-		wantURL := "url"
+		wantResultURL := "url"
 		wantProgress := 60
 		inProgressJobStatus := JobStatus{IsComplete: false, PercentComplete: wantProgress}
 		completeJobStatus := JobStatus{
 			IsComplete:      true,
-			ResultURLs:      map[ResourceType][]string{wantResource: []string{wantURL}},
+			ResultURLs:      map[ResourceType][]string{wantResource: []string{wantResultURL}},
 			TransactionTime: time.Date(2020, 9, 15, 17, 53, 11, 476000000, time.UTC)}
 
 		cases := []struct {
@@ -579,8 +578,8 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 				}
 
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-					if req.URL.Path != wantPath {
-						t.Errorf("MonitorJobStatus(%v) made request with unexpected path. got: %v, want: %v", jobID, req.URL.String(), wantPath)
+					if req.URL.Path != jobStatusURLSuffix {
+						t.Errorf("MonitorJobStatus made request with unexpected path. got: %v, want: %v", req.URL.String(), jobStatusURLSuffix)
 						return
 					}
 					counter.Lock()
@@ -589,26 +588,27 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 					if counter.count >= tc.completeAfterNChecks {
 						// Write out the completed result
 						w.WriteHeader(http.StatusOK)
-						w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantURL)))
+						w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantResultURL)))
 					} else {
 						// Write out in progress result
 						w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", wantProgress)}
 						w.WriteHeader(http.StatusAccepted)
 					}
 				}))
+				jobStatusURL := server.URL + jobStatusURLSuffix
 
-				cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs"}
+				cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
 				results := make([]JobStatus, 0, 1)
 
-				for st := range cl.MonitorJobStatus(jobID, tc.period, tc.timeout) {
+				for st := range cl.MonitorJobStatus(jobStatusURL, tc.period, tc.timeout) {
 					if st.Error != nil {
-						t.Errorf("MonitorJobStatus(%v,%v,%v) returned unexpected error: %v", jobID, tc.period, tc.timeout, st.Error)
+						t.Errorf("MonitorJobStatus(%v,%v,%v) returned unexpected error: %v", jobStatusURL, tc.period, tc.timeout, st.Error)
 					}
 					results = append(results, st.Status)
 				}
 
 				if diff := cmp.Diff(tc.wantJobStatuses, results); diff != "" {
-					t.Errorf("MonitorJobStatus(%v,%v,%v) unexpected diff in result (-want +got):\n%s", jobID, tc.period, tc.timeout, diff)
+					t.Errorf("MonitorJobStatus(%v,%v,%v) unexpected diff in result (-want +got):\n%s", jobStatusURL, tc.period, tc.timeout, diff)
 				}
 			})
 		}
@@ -623,8 +623,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			sync.Mutex
 			called bool
 		}
-		jobID := "456"
-		wantPath := fmt.Sprintf("/jobs/%s", jobID)
+		jobStatusURLSuffix := "/jobs/20"
 		wantResource := Patient
 		wantURL := "url"
 		completeJobStatus := JobStatus{
@@ -642,8 +641,8 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 				return
 			}
 
-			if req.URL.Path != wantPath {
-				t.Errorf("MonitorJobStatus(%v) made request with unexpected path. got: %v, want: %v", jobID, req.URL.String(), wantPath)
+			if req.URL.Path != jobStatusURLSuffix {
+				t.Errorf("MonitorJobStatus made request with unexpected path. got: %v, want: %v", req.URL.String(), jobStatusURLSuffix)
 				return
 			}
 
@@ -658,19 +657,20 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantURL)))
 		}))
+		jobStatusURL := server.URL + jobStatusURLSuffix
 
 		wantJobStatuses := []JobStatus{completeJobStatus}
 
 		authURL := server.URL + "/auth/token"
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, jobStatusEndpoint: "/jobs", fullAuthURL: authURL}
+		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: authURL}
 		results := make([]JobStatus, 0, 1)
 
 		monitorPeriod := time.Millisecond
 		monitorTimeout := 2 * time.Second
 
-		for st := range cl.MonitorJobStatus(jobID, monitorPeriod, monitorTimeout) {
+		for st := range cl.MonitorJobStatus(jobStatusURL, monitorPeriod, monitorTimeout) {
 			if st.Error != nil {
-				t.Errorf("MonitorJobStatus(%v,%v,%v) returned unexpected error: %v", jobID, monitorPeriod, monitorTimeout, st.Error)
+				t.Errorf("MonitorJobStatus(%v,%v,%v) returned unexpected error: %v", jobStatusURL, monitorPeriod, monitorTimeout, st.Error)
 			}
 			results = append(results, st.Status)
 		}
@@ -682,7 +682,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 		}
 
 		if diff := cmp.Diff(wantJobStatuses, results); diff != "" {
-			t.Errorf("MonitorJobStatus(%v,%v,%v) unexpected diff in result (-want +got):\n%s", jobID, monitorPeriod, monitorTimeout, diff)
+			t.Errorf("MonitorJobStatus(%v,%v,%v) unexpected diff in result (-want +got):\n%s", jobStatusURL, monitorPeriod, monitorTimeout, diff)
 		}
 	})
 }

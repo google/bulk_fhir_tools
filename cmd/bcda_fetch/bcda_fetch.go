@@ -52,13 +52,15 @@ var (
 	since                       = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
 	sinceFile                   = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
 	noFailOnUploadErrors        = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
-	bcdaJobID                   = flag.String("bcda_job_id", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job ID provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
+	bcdaJobID                   = flag.String("bcda_job_id", "", "DEPRECATED in favor of bcda_job_url.")
+	bcdaJobURL                  = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
 )
 
 var (
 	errInvalidSince            = errors.New("invalid since timestamp")
 	errUploadFailures          = errors.New("fhir store upload failures")
 	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
+	errBCDAJobIDDeprecated     = errors.New("bcda_job_id flag is deprecated in favor of the bcda_job_url flag")
 )
 
 const (
@@ -98,6 +100,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
 	}
 
+	if cfg.bcdaJobID != "" {
+		return errBCDAJobIDDeprecated
+	}
+
 	if cfg.enableFHIRStore && !cfg.rectify {
 		return errMustRectifyForFHIRStore
 	}
@@ -126,17 +132,17 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return err
 	}
 
-	jobID := cfg.bcdaJobID
-	if cfg.bcdaJobID == "" {
-		jobID, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince)
+	jobURL := cfg.bcdaJobURL
+	if jobURL == "" {
+		jobURL, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
 		}
-		log.Infof("Started BCDA job: %s\n", jobID)
+		log.Infof("Started BCDA job: %s\n", jobURL)
 	}
 
 	var monitorResult *bulkfhir.MonitorResult
-	for monitorResult = range cl.MonitorJobStatus(jobID, jobStatusPeriod, jobStatusTimeout) {
+	for monitorResult = range cl.MonitorJobStatus(jobURL, jobStatusPeriod, jobStatusTimeout) {
 		if monitorResult.Error != nil {
 			log.Errorf("error while checking the jobStatus: %v", err)
 		}
@@ -367,6 +373,7 @@ type mainWrapperConfig struct {
 	sinceFile                   string
 	noFailOnUploadErrors        bool
 	bcdaJobID                   string
+	bcdaJobURL                  string
 }
 
 func buildMainWrapperConfig() mainWrapperConfig {
@@ -391,5 +398,6 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		sinceFile:                   *sinceFile,
 		noFailOnUploadErrors:        *noFailOnUploadErrors,
 		bcdaJobID:                   *bcdaJobID,
+		bcdaJobURL:                  *bcdaJobURL,
 	}
 }

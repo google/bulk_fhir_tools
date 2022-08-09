@@ -52,15 +52,12 @@ func TestNewClient(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-
-			jobID := "1"
-
 			wantAuthEndpoint := "/auth/token" // note auth is not prefixed with a version.
 			wantBulkDataExportEndpoint := "/api/v1/Group/all/$export"
-			wantJobStatusEndpoint := "/api/v1/jobs/" + jobID
+			wantJobStatusEndpointSuffix := "/api/v1/jobs/1"
 			if tc.v == bcda.V2 {
 				wantBulkDataExportEndpoint = "/api/v2/Group/all/$export"
-				wantJobStatusEndpoint = "/api/v2/jobs/" + jobID
+				wantJobStatusEndpointSuffix = "/api/v2/jobs/1"
 			}
 
 			var correctAuthCalled boolMutex
@@ -81,7 +78,7 @@ func TestNewClient(t *testing.T) {
 					correctBulkDataExportCalled.Unlock()
 					w.Header()["Content-Location"] = []string{"some/info/"}
 					w.WriteHeader(http.StatusAccepted)
-				case wantJobStatusEndpoint:
+				case wantJobStatusEndpointSuffix:
 					correctJobStatusCalled.Lock()
 					correctJobStatusCalled.called = true
 					correctJobStatusCalled.Unlock()
@@ -112,7 +109,8 @@ func TestNewClient(t *testing.T) {
 				t.Errorf("got unexpected error from StartBulkDataExport: %v", err)
 			}
 
-			_, err = cl.JobStatus(jobID)
+			jobStatusURL := server.URL + wantJobStatusEndpointSuffix
+			_, err = cl.JobStatus(jobStatusURL)
 			if err != nil {
 				t.Errorf("got unexpected error from JobStatus: %v", err)
 			}
@@ -124,7 +122,7 @@ func TestNewClient(t *testing.T) {
 				t.Errorf("correct StartBulkDataExport endpoint not called. expected call at %v", wantBulkDataExportEndpoint)
 			}
 			if !correctJobStatusCalled.called {
-				t.Errorf("correct JobStatus endpoint not called. expected call at %v", wantJobStatusEndpoint)
+				t.Errorf("correct JobStatus endpoint not called. expected call at suffix %v", wantJobStatusEndpointSuffix)
 			}
 		})
 	}

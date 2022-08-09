@@ -120,8 +120,7 @@ func ResourceTypeFromAPI(r string) (ResourceType, error) {
 type Client struct {
 	baseURL string
 
-	fullAuthURL       string
-	jobStatusEndpoint string
+	fullAuthURL string
 
 	clientID     string
 	clientSecret string
@@ -135,13 +134,11 @@ type Client struct {
 // (this endpoint must include the baseURL component as well).
 func NewClient(baseURL, fullAuthURL, clientID, clientSecret string) (*Client, error) {
 	return &Client{
-		baseURL:     baseURL,
-		fullAuthURL: fullAuthURL,
-		// TODO(b/239856442): accecpt jobStatusEndpoint as a parameter as well
-		jobStatusEndpoint: "/jobs",
-		httpClient:        &http.Client{},
-		clientID:          clientID,
-		clientSecret:      clientSecret,
+		baseURL:      baseURL,
+		fullAuthURL:  fullAuthURL,
+		httpClient:   &http.Client{},
+		clientID:     clientID,
+		clientSecret: clientSecret,
 	}, nil
 }
 
@@ -209,8 +206,9 @@ func (c *Client) Authenticate() (token string, err error) {
 }
 
 // StartBulkDataExport starts a job via the bulk fhir API to begin exporting the requested resource
-// types since the provided timestamp, and returns the jobID.
-func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time) (jobID string, err error) {
+// types since the provided timestamp, and returns the URL to query the job status (from the response
+// Content-Location header).
+func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time) (jobStatusURL string, err error) {
 	if len(c.token) == 0 {
 		return "", ErrorUnauthorized
 	}
@@ -256,17 +254,13 @@ func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time) (job
 		return "", fmt.Errorf("unexpected non-OK and non-Accepted http status code: %d %w", resp.StatusCode, ErrorUnexpectedStatusCode)
 	}
 
-	// Extract the job ID:
+	// Extract the URL location used to check job status
 	cLocations := resp.Header.Values(contentLocation)
 	if len(cLocations) != 1 {
 		return "", fmt.Errorf("one Content-Location header value expected. Instead got: %d %w", len(cLocations), ErrorGreaterThanOneContentLocation)
 	}
-	// The job ID is the last item in the "/" separated string in the Content-Location header value For
-	// example: "some/information/jobid"
-	splits := strings.Split(cLocations[0], "/")
-	jobID = splits[len(splits)-1]
 
-	return jobID, nil
+	return cLocations[0], nil
 }
 
 // JobStatus represents the current status of a bulk fhir export Job, returned from GetJobStatus.
@@ -279,14 +273,14 @@ type JobStatus struct {
 	TransactionTime time.Time
 }
 
-// JobStatus retrieves the current JobStatus via the bulk fhir API for the provided jobID.
-func (c *Client) JobStatus(jobID string) (st JobStatus, err error) {
+// JobStatus retrieves the current JobStatus via the bulk fhir API for the
+// provided job status URL.
+func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
 	if len(c.token) == 0 {
 		return JobStatus{}, ErrorUnauthorized
 	}
 
-	url := fmt.Sprintf("%s%s/%s", c.baseURL, c.jobStatusEndpoint, jobID)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, jobStatusURL, nil)
 	if err != nil {
 		return JobStatus{}, err
 	}
@@ -354,7 +348,7 @@ type MonitorResult struct {
 	Error error
 }
 
-// MonitorJobStatus will asynchronously check the status of jobID at the
+// MonitorJobStatus will asynchronously check the status of job at the
 // provided checkPeriod until either the job completes or until the timeout.
 // Each time the job status is checked, a MonitorResult will be emitted to
 // the returned channel for the caller to consume. When the timeout is reached
@@ -362,14 +356,14 @@ type MonitorResult struct {
 // channel (or the ErrorTimeout error), and the channel will be closed.
 // If an ErrorUnauthroized is encountered, MonitorJobStatus will attempt to
 // reauthenticate and continue trying.
-func (c *Client) MonitorJobStatus(jobID string, checkPeriod, timeout time.Duration) <-chan *MonitorResult {
+func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time.Duration) <-chan *MonitorResult {
 	out := make(chan *MonitorResult, 100)
 	deadline := time.Now().Add(timeout)
 	go func() {
 		var jobStatus JobStatus
 		var err error
 		for !jobStatus.IsComplete && time.Now().Before(deadline) {
-			jobStatus, err = c.JobStatus(jobID)
+			jobStatus, err = c.JobStatus(jobStatusURL)
 			if err != nil {
 				if errors.Is(err, ErrorUnauthorized) {
 					_, err = c.Authenticate()
