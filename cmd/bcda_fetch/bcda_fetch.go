@@ -134,7 +134,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	jobURL := cfg.bcdaJobURL
 	if jobURL == "" {
-		jobURL, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince)
+		jobURL, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince, bulkfhir.ExportGroupAll)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
 		}

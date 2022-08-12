@@ -104,7 +104,7 @@ func TestNewClient(t *testing.T) {
 				t.Errorf("got unexpected error from Authenticate: %v", err)
 			}
 
-			_, err = cl.StartBulkDataExport([]bulkfhir.ResourceType{}, time.Time{})
+			_, err = cl.StartBulkDataExport([]bulkfhir.ResourceType{}, time.Time{}, bulkfhir.ExportGroupAll)
 			if err != nil {
 				t.Errorf("got unexpected error from StartBulkDataExport: %v", err)
 			}

@@ -58,6 +58,11 @@ var (
 	ErrorRetryableHTTPStatus = errors.New("this is a retryable but unexpected HTTP status code error")
 )
 
+// ExportGroupAll is a default group ID of "all" which can be supplied to
+// StartBulkDataExport. Depending on your FHIR server, the all patients group
+// ID may differ, so be sure to consult relevant documentation.
+var ExportGroupAll = "all"
+
 // TODO(b/239856442): generalize further to support additional resource types.
 
 // ResourceType represents a FHIR resource that can be retrieved from the BCDA API.
@@ -164,8 +169,7 @@ const (
 
 // Endpoint locations
 const (
-	// TODO(b/239856442): generalize further to support input groups.
-	bulkDataExportEndpoint = "/Group/all/$export"
+	bulkDataExportEndpointFmtStr = "/Group/%s/$export"
 )
 
 // progressREGEX matches strings like "(50%)" and captures the percentile number (50).
@@ -205,15 +209,17 @@ func (c *Client) Authenticate() (token string, err error) {
 	return tr.Token, nil
 }
 
-// StartBulkDataExport starts a job via the bulk fhir API to begin exporting the requested resource
-// types since the provided timestamp, and returns the URL to query the job status (from the response
-// Content-Location header).
-func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time) (jobStatusURL string, err error) {
+// StartBulkDataExport starts a job via the bulk fhir API to begin exporting the
+// requested resource types since the provided timestamp for the provided group,
+// and returns the URL to query the job status (from the response Content-
+// Location header). The variable bulkfhir.ExportGroupAll can be provided
+// for the group parameter if you wish to retrieve all FHIR resources.
+func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time, groupID string) (jobStatusURL string, err error) {
 	if len(c.token) == 0 {
 		return "", ErrorUnauthorized
 	}
 
-	u, err := url.Parse(c.baseURL + bulkDataExportEndpoint)
+	u, err := url.Parse(c.baseURL + fmt.Sprintf(bulkDataExportEndpointFmtStr, groupID))
 	if err != nil {
 		return "", err
 	}

@@ -90,7 +90,7 @@ func TestClient_Authenticate(t *testing.T) {
 func TestClient_StartBulkDataExport(t *testing.T) {
 	t.Run("without token", func(t *testing.T) {
 		c := Client{httpClient: &http.Client{}}
-		_, err := c.StartBulkDataExport([]ResourceType{}, time.Time{})
+		_, err := c.StartBulkDataExport([]ResourceType{}, time.Time{}, ExportGroupAll)
 		if err != ErrorUnauthorized {
 			t.Errorf("StartBulkDataExport returned incorrect error. got: %v, want: %v", err, ErrorUnauthorized)
 		}
@@ -99,7 +99,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
 		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: server.URL}
-		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{})
+		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
 		if err != ErrorUnauthorized {
 			t.Errorf("StartBulkDataExport unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
 		}
@@ -109,8 +109,9 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		token := "123"
 		resourceTypes := []ResourceType{Patient, ExplanationOfBenefit, Coverage}
 		since := time.Date(2013, 12, 9, 11, 0, 0, 123000000, time.UTC)
+		group := "mygroup"
 
-		expectedPath := "/Group/all/$export"
+		expectedPath := "/Group/mygroup/$export"
 		expectedAcceptValue := "application/fhir+json"
 		expectedSince := "2013-12-09T11:00:00.123+00:00"
 		expectedTypes := "Patient,ExplanationOfBenefit,Coverage"
@@ -156,7 +157,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		defer server.Close()
 
 		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-		jobURL, err := cl.StartBulkDataExport(resourceTypes, since)
+		jobURL, err := cl.StartBulkDataExport(resourceTypes, since, group)
 		if err != nil {
 			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", resourceTypes, since, err)
 		}
@@ -214,7 +215,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 				defer server.Close()
 
 				cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-				jobURL, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since)
+				jobURL, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since, ExportGroupAll)
 				if err != nil {
 					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", tc.resourceTypes, tc.since, err)
 				}
@@ -233,7 +234,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 
 		token := "123"
 		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{})
+		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
 		if !errors.Is(err, ErrorGreaterThanOneContentLocation) {
 			t.Errorf("StartBulkDataExport(%v, %v) unexpected underlying error got: %v want: %v", AllResourceTypes, time.Time{}, err, ErrorGreaterThanOneContentLocation)
 		}
