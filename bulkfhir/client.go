@@ -47,7 +47,7 @@ var (
 	// ErrorTimeout indicates the operation timed out.
 	ErrorTimeout = errors.New("this operation timed out")
 	// ErrorUnexpectedStatusCode indicates an unexpected status code was present.
-	ErrorUnexpectedStatusCode = errors.New("unexpected non-ok or non-accecpted HTTP status code")
+	ErrorUnexpectedStatusCode = errors.New("unexpected non-ok HTTP status code")
 	// ErrorGreaterThanOneContentLocation indicates more than 1 Content-Location header was present.
 	ErrorGreaterThanOneContentLocation = errors.New("greater than 1 Content-Location header")
 	// ErrorUnexpectedNumberOfXProgress indicated unexpected number of X-Progress headers present.
@@ -209,8 +209,15 @@ func (c *Client) Authenticate() (token string, err error) {
 		return "", err
 	}
 
-	var tr tokenResponse
+	if resp.StatusCode != http.StatusOK {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("unexpected status code %v, but also had an error parsing error body: %v %w", resp.StatusCode, err, ErrorUnexpectedStatusCode)
+		}
+		return "", fmt.Errorf("unexpected status code %v with error body: %s %w", resp.StatusCode, respBody, ErrorUnexpectedStatusCode)
+	}
 
+	var tr tokenResponse
 	dec := json.NewDecoder(resp.Body)
 	if err := dec.Decode(&tr); err != nil {
 		return "", err

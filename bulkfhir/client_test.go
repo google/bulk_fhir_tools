@@ -142,6 +142,30 @@ func TestClient_Authenticate(t *testing.T) {
 	}
 }
 
+func TestClient_Authenticate_WithError(t *testing.T) {
+	wantErrBody := []byte(`an error`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(wantErrBody)
+	}))
+	defer server.Close()
+
+	authURL := server.URL + "/auth/token"
+	clientID := "id"
+	clientSecret := "secret"
+	cl, err := NewClient(server.URL, authURL, clientID, clientSecret, []string{})
+	if err != nil {
+		t.Fatalf("NewClient(%v, %v) error: %v", server.URL, authURL, err)
+	}
+	token, err := cl.Authenticate()
+	if !errors.Is(err, ErrorUnexpectedStatusCode) {
+		t.Errorf("Authenticate(%s, %s) returned unexpected error. got: %v, want: %v", clientID, clientSecret, err, ErrorUnexpectedStatusCode)
+	}
+	if token != "" {
+		t.Errorf("Authenticate(%s, %s) unexpected token. got: %v, want: %v", clientID, clientSecret, token, "")
+	}
+}
+
 func TestClient_StartBulkDataExport(t *testing.T) {
 	t.Run("without token", func(t *testing.T) {
 		c := Client{httpClient: &http.Client{}}
