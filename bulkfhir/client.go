@@ -18,6 +18,7 @@
 package bulkfhir
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,6 +130,7 @@ type Client struct {
 
 	clientID     string
 	clientSecret string
+	authScopes   []string
 
 	token      string
 	httpClient *http.Client
@@ -136,14 +138,17 @@ type Client struct {
 
 // NewClient creates and returns a new bulk fhir API Client for the input
 // baseURL. A full authentication endpoint to get a token must also be provided
-// (this endpoint must include the baseURL component as well).
-func NewClient(baseURL, fullAuthURL, clientID, clientSecret string) (*Client, error) {
+// (this endpoint must include the baseURL component as well). authScopes
+// is a set of scopes to be used alongside authentication requests (this can
+// be empty if not needed for your FHIR server).
+func NewClient(baseURL, fullAuthURL, clientID, clientSecret string, authScopes []string) (*Client, error) {
 	return &Client{
 		baseURL:      baseURL,
 		fullAuthURL:  fullAuthURL,
 		httpClient:   &http.Client{},
 		clientID:     clientID,
 		clientSecret: clientSecret,
+		authScopes:   authScopes,
 	}, nil
 }
 
@@ -156,6 +161,9 @@ const (
 	acceptHeader         = "Accept"
 	acceptHeaderJSON     = "application/json"
 	acceptHeaderFHIRJSON = "application/fhir+json"
+
+	contentTypeHeader         = "Content-Type"
+	contentTypeFormURLEncoded = "application/x-www-form-urlencoded"
 
 	preferHeader      = "Prefer"
 	preferHeaderAsync = "respond-async"
@@ -184,13 +192,17 @@ var progressREGEX = regexp.MustCompile(`\(([0-9]+?)%\)`)
 func (c *Client) Authenticate() (token string, err error) {
 	url := c.fullAuthURL
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	body := buildAuthBody(c.authScopes)
+	req, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
 		return "", err
 	}
 
 	req.SetBasicAuth(c.clientID, c.clientSecret)
 	req.Header.Add(acceptHeader, acceptHeaderJSON)
+	if body != nil {
+		req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -469,4 +481,27 @@ func resourceTypesToQueryValue(types []ResourceType) (string, error) {
 		b.WriteString(a)
 	}
 	return b.String(), nil
+}
+
+// buildAuthBody serializes the provided slice of scopes for use in
+// Authenticate's HTTP body using the expected urlencoded scheme, and adds in
+// the default grant_type.
+func buildAuthBody(scopes []string) io.Reader {
+	if len(scopes) == 0 {
+		return nil
+	}
+
+	s := strings.Builder{}
+	// Add all scopes with a trailing space to the builder, except the last scope
+	// for which a trailing space is not included.
+	for _, scope := range scopes[0 : len(scopes)-1] {
+		s.WriteString(scope + " ")
+	}
+	s.WriteString(scopes[len(scopes)-1]) // write last element with trailing space.
+
+	v := url.Values{}
+	v.Add("scope", s.String())
+	v.Add("grant_type", "client_credentials")
+
+	return bytes.NewBufferString(v.Encode())
 }

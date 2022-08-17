@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,55 +36,109 @@ func TestClient_Authenticate(t *testing.T) {
 	expectedPath := "/auth/token"
 	expectedToken := "123"
 	expectedAcceptValue := "application/json"
-	// Start an httptest server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.String() != expectedPath {
-			t.Errorf("Authenticate(%s, %s) made request with unexpected path. got: %v, want: %v", clientID, clientSecret, req.URL.String(), expectedPath)
-		}
+	expectedContentTypeValue := "application/x-www-form-urlencoded"
+	expectedGrantTypeValue := "client_credentials"
 
-		id, sec, ok := req.BasicAuth()
-		if !ok {
-			t.Errorf("Authenticate(%s, %s) basic auth not OK.", clientID, clientSecret)
-		}
-		if id != clientID {
-			t.Errorf("Authenticate(%s, %s) sent unexpected clientID, got %s, want: %s", clientID, clientSecret, id, clientID)
-		}
-		if sec != clientSecret {
-			t.Errorf("Authenticate(%s, %s) sent unexpected clientSecret, got %s, want: %s", clientID, clientSecret, sec, clientSecret)
-		}
+	cases := []struct {
+		name   string
+		scopes []string
+	}{
+		{
+			name:   "NoScopes",
+			scopes: []string{},
+		},
+		{
+			name:   "OneScope",
+			scopes: []string{"a"},
+		},
+		{
+			name:   "MultiScopes",
+			scopes: []string{"a", "b", "c"},
+		},
+	}
 
-		accValues, ok := req.Header["Accept"]
-		if !ok {
-			t.Errorf("Authenticate(%s, %s) did not sent Accept header", clientID, clientSecret)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.String() != expectedPath {
+					t.Errorf("Authenticate(%s, %s) made request with unexpected path. got: %v, want: %v", clientID, clientSecret, req.URL.String(), expectedPath)
+				}
 
-		found := false
-		for _, val := range accValues {
-			if val == expectedAcceptValue {
-				found = true
+				id, sec, ok := req.BasicAuth()
+				if !ok {
+					t.Errorf("Authenticate(%s, %s) basic auth not OK.", clientID, clientSecret)
+				}
+				if id != clientID {
+					t.Errorf("Authenticate(%s, %s) sent unexpected clientID, got %s, want: %s", clientID, clientSecret, id, clientID)
+				}
+				if sec != clientSecret {
+					t.Errorf("Authenticate(%s, %s) sent unexpected clientSecret, got %s, want: %s", clientID, clientSecret, sec, clientSecret)
+				}
+
+				if len(tc.scopes) > 0 {
+					err := req.ParseForm()
+					if err != nil {
+						t.Errorf("Authenticate(%s, %s) sent a body that could not be parsed as a form: %s", clientID, clientSecret, err)
+					}
+
+					if got := len(req.Form["scope"]); got != 1 {
+						t.Errorf("Authenticate(%s, %s) sent invalid number of scope values. got: %v, want: %v", clientID, clientSecret, got, 1)
+					}
+					splitScopes := strings.Split(req.Form["scope"][0], " ")
+					if diff := cmp.Diff(splitScopes, tc.scopes, cmpopts.SortSlices(func(a, b string) bool { return a > b })); diff != "" {
+						t.Errorf("Authenticate(%s, %s) sent invalid scopes. diff: %s", clientID, clientSecret, diff)
+					}
+					if got := len(req.Form["grant_type"]); got != 1 {
+						t.Errorf("Authenticate(%s, %s) sent invalid number of grant_type values. got: %v, want: %v", clientID, clientSecret, got, 1)
+					}
+					if got := req.Form["grant_type"][0]; got != expectedGrantTypeValue {
+						t.Errorf("Authenticate(%s, %s) sent invalid grant_type value. got: %v, want: %v", clientID, clientSecret, got, expectedGrantTypeValue)
+					}
+
+					contentTypeVals, ok := req.Header["Content-Type"]
+					if !ok {
+						t.Errorf("Authenticate(%s, %s) did not send Content-Type header", clientID, clientSecret)
+					}
+					if len(contentTypeVals) != 1 {
+						t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected number of values. got: %v, want: %v", clientID, clientSecret, len(contentTypeVals), 1)
+					}
+					if got := contentTypeVals[0]; got != expectedContentTypeValue {
+						t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected value. got: %v, want: %v", clientID, clientSecret, got, expectedContentTypeValue)
+					}
+				}
+
+				accValues, ok := req.Header["Accept"]
+				if !ok {
+					t.Errorf("Authenticate(%s, %s) did not send Accept header", clientID, clientSecret)
+				}
+
+				if len(accValues) != 1 {
+					t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected number of values. got: %v, want: %v", clientID, clientSecret, len(accValues), 1)
+				}
+
+				if got := accValues[0]; got != expectedAcceptValue {
+					t.Errorf("Authenticate(%s, %s) did not send expected Accept header. got: %v, want: %v", clientID, clientSecret, got, expectedAcceptValue)
+				}
+
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("{\"access_token\": \"%s\"}", expectedToken)))
+			}))
+			defer server.Close()
+			authURL := server.URL + "/auth/token"
+
+			cl, err := NewClient(server.URL, authURL, clientID, clientSecret, tc.scopes)
+			if err != nil {
+				t.Fatalf("NewClient(%v, %v) error: %v", server.URL, authURL, err)
 			}
-		}
-		if !found {
-			t.Errorf("Authenticate(%s, %s) did not sent expected Accept header value of %v", clientID, clientSecret, expectedAcceptValue)
-		}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("{\"access_token\": \"%s\"}", expectedToken)))
-	}))
-	defer server.Close()
-	authURL := server.URL + "/auth/token"
-
-	cl, err := NewClient(server.URL, authURL, clientID, clientSecret)
-	if err != nil {
-		t.Fatalf("NewClient(%v, %v) error: %v", server.URL, authURL, err)
-	}
-
-	token, err := cl.Authenticate()
-	if err != nil {
-		t.Errorf("Authenticate(%s, %s) returned unexpected error: %v", clientID, clientSecret, err)
-	}
-	if token != expectedToken {
-		t.Errorf("Authenticate(%s, %s) returned unexpected token. got %v, want: %v", clientID, clientSecret, token, expectedToken)
+			token, err := cl.Authenticate()
+			if err != nil {
+				t.Errorf("Authenticate(%s, %s) returned unexpected error: %v", clientID, clientSecret, err)
+			}
+			if token != expectedToken {
+				t.Errorf("Authenticate(%s, %s) returned unexpected token. got %v, want: %v", clientID, clientSecret, token, expectedToken)
+			}
+		})
 	}
 }
 
