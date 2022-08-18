@@ -53,9 +53,6 @@ go build cmd/bcda_fetch/bcda_fetch.go
 To build on a GCP VM, you can follow these [instructions](docs/gcp_vm_setup.md)
 to get the environment setup.
 
-<!---TODO(b/199179306): add link below when public.--->
-Or download a prebuilt binary from the GitHub releases tab.
-
 ### Common Usage
 
 You can check all of the various flag details by running `./bcda_fetch --help`.
