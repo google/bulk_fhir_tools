@@ -16,6 +16,9 @@ account to have the ability to upload to FHIR store.
         not work, as it sets read-only access.
     *   After creating the virtual machine, ensure the VM service account has
         "Healthcare FHIR Resource Editor" permission on the relevant datastore.
+        *   Your default service account should be of the form: `PROJECT_NUMBER-compute@developer.gserviceaccount.com`.
+        *   To verify that that service account has the "Healthcare FHIR Resource Editor" permission, navigate to `Google Cloud > Healthcare > Browser` and select the dataset of interest/ create one if none exists. Select the datastore of interest/ create one if none exists. The on the `PERMISSIONS` section (on the right hand side) expand the "Healthcare FHIR Resource Editor" tab and if you see your default service account then your permissions are setup properly.
+        *   If you do not see your service account, you can add it by clicking on `ADD PRINCIPAL`, adding your service account into the `New principals` section and selecting "Healthcare FHIR Resource Editor" in the `Select a role` section and clicking `SAVE`.
 2.  Install `git`:
 
     ```sh
