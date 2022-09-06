@@ -45,6 +45,8 @@ type Client struct {
 }
 
 // NewClient initializes and returns a new FHIR store client.
+// TODO(b/245329562): consider taking project, location, dataset, etc upfront
+// here.
 func NewClient(ctx context.Context, healthcareEndpoint string) (*Client, error) {
 	var service *healthcare.Service
 	var err error
@@ -68,8 +70,8 @@ func NewClient(ctx context.Context, healthcareEndpoint string) (*Client, error) 
 
 // UploadResource uploads the provided FHIR Resource to the GCP FHIR Store
 // specified by projectID, location, datasetID, and fhirStoreID.
-func (f *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
-	fhirService := f.service.Projects.Locations.Datasets.FhirStores.Fhir
+func (c *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
+	fhirService := c.service.Projects.Locations.Datasets.FhirStores.Fhir
 
 	resourceType, resourceID, err := getResourceTypeAndID(fhirJSON)
 	if err != nil {
@@ -100,20 +102,20 @@ func (f *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID,
 // store specified, and does so in "batch" mode assuming each FHIR resource is
 // independent. The error returned may be an instance of BundleError,
 // which provides additional structured information on the error.
-func (f *Client) UploadBatch(fhirJSONs [][]byte, projectID, location, datasetID, fhirStoreID string) error {
+func (c *Client) UploadBatch(fhirJSONs [][]byte, projectID, location, datasetID, fhirStoreID string) error {
 	bundle := makeFHIRBundle(fhirJSONs, false)
 	bundleJSON, err := json.Marshal(bundle)
 	if err != nil {
 		return err
 	}
-	return f.UploadBundle(bundleJSON, projectID, location, datasetID, fhirStoreID)
+	return c.UploadBundle(bundleJSON, projectID, location, datasetID, fhirStoreID)
 }
 
 // UploadBundle uploads the provided json serialized FHIR Bundle to the GCP
 // FHIR store specified. The error returned may be an instance of BundleError,
 // which provides additional structured information on the error.
-func (f *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
-	fhirService := f.service.Projects.Locations.Datasets.FhirStores.Fhir
+func (c *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
+	fhirService := c.service.Projects.Locations.Datasets.FhirStores.Fhir
 	parent := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", projectID, location, datasetID, fhirStoreID)
 
 	call := fhirService.ExecuteBundle(parent, bytes.NewReader(fhirBundleJSON))
@@ -133,6 +135,33 @@ func (f *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datase
 	}
 
 	return nil
+}
+
+// ImportFromGCS triggers a long-running FHIR store import job from a
+// GCS location. Note wildcards can be used in the gcsURI, for example,
+// gs://BUCKET/DIRECTORY/**.ndjson imports all files with .ndjson extension
+// in DIRECTORY and its subdirectories.
+//
+// This function returns the GCP long running op name, which can be passed
+// to a function coming soon to check the status of the long running import
+// operation.
+func (c *Client) ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID string) (string, error) {
+	storesService := c.service.Projects.Locations.Datasets.FhirStores
+	name := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", projectID, location, datasetID, fhirStoreID)
+
+	req := &healthcare.ImportResourcesRequest{
+		ContentStructure: "RESOURCE",
+		GcsSource: &healthcare.GoogleCloudHealthcareV1FhirGcsSource{
+			Uri: gcsURI,
+		},
+	}
+
+	op, err := storesService.Import(name, req).Do()
+	if err != nil {
+		return "", fmt.Errorf("error kicking off the GCS to FHIR store import job: %v", err)
+	}
+
+	return op.Name, nil
 }
 
 // BundleError represents an error returned from GCP FHIR Store when attempting

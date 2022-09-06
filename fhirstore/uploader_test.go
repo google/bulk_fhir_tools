@@ -130,7 +130,7 @@ func TestUploader_Batch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			serverURL := testhelpers.FHIRStoreServerBatch(t, inputJSONs, tc.expectedFullBatchSize, projectID, location, datasetID, fhirStoreID)
 			errCounter := counter.New()
-			numWorkers := 2
+			numWorkers := 1
 			outputPrefix := ""
 			if tc.setFHIRErrorFileDir {
 				outputPrefix = t.TempDir()

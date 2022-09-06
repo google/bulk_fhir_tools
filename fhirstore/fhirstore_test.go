@@ -180,6 +180,73 @@ func TestUploadBundle(t *testing.T) {
 	})
 }
 
+func TestImportFromGCS(t *testing.T) {
+	projectID := "projectID"
+	location := "us-east1"
+	datasetID := "datasetID"
+	fhirStoreID := "fhirstoreID"
+	expectedOPName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/operations/OPNAME", projectID, location, datasetID)
+	gcsURI := "gs://bucket/dir/**.ndjson"
+	expectedImportRequest := gcsImportRequest{
+		ContentStructure: "RESOURCE",
+		GCSSource: gcsSource{
+			URI: gcsURI,
+		},
+	}
+
+	t.Run("ValidResponse", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s:import?alt=json&prettyPrint=false", projectID, location, datasetID, fhirStoreID)
+			if req.URL.String() != expectedPath {
+				t.Errorf("FHIR store test server got call to unexpected URL. got: %v, want: %v", req.URL.String(), expectedPath)
+			}
+
+			bodyData, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Errorf("unexpected error reading request body in fhir server: %v", err)
+			}
+			var importReq gcsImportRequest
+			if err := json.Unmarshal(bodyData, &importReq); err != nil {
+				t.Errorf("error unmarshalling request body in fhir server: %v", err)
+			}
+			if !cmp.Equal(importReq, expectedImportRequest) {
+				t.Errorf("FHIR store test server received unexpected gcsURI. got: %v, want: %v", importReq, expectedImportRequest)
+			}
+
+			w.Write([]byte(fmt.Sprintf("{\"name\": \"%s\"}", expectedOPName)))
+		}))
+
+		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		if err != nil {
+			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
+		}
+		opName, err := c.ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID)
+		if err != nil {
+			t.Errorf("ImportFromGCS unexpected error: %v", err)
+		}
+		if opName != expectedOPName {
+			t.Errorf("ImportFromGCS unexpected opname, got: %v, want: %v", opName, expectedOPName)
+		}
+	})
+
+	t.Run("ErrorResponse", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(500)
+		}))
+		defer server.Close()
+
+		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		if err != nil {
+			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
+		}
+		_, err = c.ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID)
+		if err == nil {
+			t.Errorf("expected non-nil error from ImportFromGCS")
+		}
+	})
+
+}
+
 // checkInternalServerBundleError checks that the provided errorToCheck is a
 // *fhirstore.BundleError and that the BundleError matches is a 500 Internal
 // Server error with the provided body. It also checks that the errors.Is
@@ -213,4 +280,13 @@ type fhirBundle struct {
 
 type entry struct {
 	Resource json.RawMessage `json:"resource"`
+}
+
+type gcsSource struct {
+	URI string `json:"uri"`
+}
+
+type gcsImportRequest struct {
+	ContentStructure string    `json:"contentStructure"`
+	GCSSource        gcsSource `json:"gcsSource"`
 }
