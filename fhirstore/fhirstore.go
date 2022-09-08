@@ -143,7 +143,7 @@ func (c *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datase
 // in DIRECTORY and its subdirectories.
 //
 // This function returns the GCP long running op name, which can be passed
-// to a function coming soon to check the status of the long running import
+// to CheckGCSImportStatus to check the status of the long running import
 // operation.
 func (c *Client) ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID string) (string, error) {
 	storesService := c.service.Projects.Locations.Datasets.FhirStores
@@ -162,6 +162,18 @@ func (c *Client) ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStore
 	}
 
 	return op.Name, nil
+}
+
+// CheckGCSImportStatus will check the long running GCS to FHIR store import
+// job specified by opName, and return whether it is complete or not along with
+// a possible error.
+func (c *Client) CheckGCSImportStatus(opName string) (isDone bool, err error) {
+	operationsService := c.service.Projects.Locations.Datasets.Operations
+	op, err := operationsService.Get(opName).Do()
+	if err != nil {
+		return false, fmt.Errorf("error in operationsService.Get(%q): %v", opName, err)
+	}
+	return op.Done, nil
 }
 
 // BundleError represents an error returned from GCP FHIR Store when attempting

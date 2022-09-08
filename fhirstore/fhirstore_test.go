@@ -247,6 +247,66 @@ func TestImportFromGCS(t *testing.T) {
 
 }
 
+func TestCheckGCSImportStatus(t *testing.T) {
+	expectedOPName := "projects/project/locations/location/datasets/dataset/operations/OPNAME"
+
+	cases := []struct {
+		name     string
+		isDone   bool
+		hasError bool
+	}{
+		{
+			name:   "ValidIsDone",
+			isDone: true,
+		},
+		{
+			name:   "ValidNotDone",
+			isDone: false,
+		},
+		{
+			name:     "WithError",
+			hasError: true,
+		},
+	}
+
+	for _, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.String() != "/v1/"+expectedOPName+"?alt=json&prettyPrint=false" {
+				t.Errorf("unexpected request. got: %v, want: %v", req.URL.String(), expectedOPName)
+			}
+
+			if tc.hasError {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			if tc.isDone {
+				w.Write([]byte(`{"done": true}`))
+				return
+			}
+			w.Write([]byte(`{"done": false}`))
+		}))
+
+		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		if err != nil {
+			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
+		}
+
+		isDone, err := c.CheckGCSImportStatus(expectedOPName)
+		if !tc.hasError && err != nil {
+			t.Errorf("CheckGCSImportStatus: unexpected err: %v", err)
+		}
+		if tc.hasError && err == nil {
+			t.Errorf("CheckGCSImportStatus: expected error but got nil")
+		}
+
+		if isDone != tc.isDone {
+			t.Errorf("CheckGCSImportStatus: unexpected isDone value. got: %v, want: %v", isDone, tc.isDone)
+		}
+	}
+
+}
+
 // checkInternalServerBundleError checks that the provided errorToCheck is a
 // *fhirstore.BundleError and that the BundleError matches is a 500 Internal
 // Server error with the provided body. It also checks that the errors.Is
