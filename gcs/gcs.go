@@ -75,3 +75,13 @@ func (gcsClient Client) GetFileWriter(fileName string, since time.Time) (io.Writ
 	writeCloser := obj.NewWriter(context.Background())
 	return writeCloser, nil
 }
+
+// GetFileReader returns a reader for a file in GCS named `fileName`. The file must exist in the
+// GCS location that the gcsClient points to.
+func (gcsClient Client) GetFileReader(ctx context.Context, fileName string) (io.ReadCloser, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bkt := gcsClient.Bucket(gcsClient.bucketName)
+	return bkt.Object(fileName).NewReader(ctx)
+}

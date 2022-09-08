@@ -15,6 +15,8 @@
 package gcs
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,4 +91,43 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 	if err != nil {
 		t.Error("Unexpected error when closing file and uploading data to GCS: ", err)
 	}
+}
+
+func TestGCSClientReadsDataFromGCS(t *testing.T) {
+	var bucketID = "TestBucket"
+	var fileName = "TestFile"
+	var fileData = "{ value : 'hello' }"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Request to get a reader from GCS.
+		requestPath := fmt.Sprintf("/%s/%s", bucketID, fileName)
+
+		if req.URL.String() != requestPath {
+			t.Errorf("Test server got unexpected url: %v", req.URL.String())
+			return
+		}
+
+		w.WriteHeader(200)
+		w.Write([]byte(fileData))
+	}))
+
+	gcsClient, err := NewClient(bucketID, server.URL)
+	if err != nil {
+		t.Error("Unexpected error when creating NewClient: ", err)
+	}
+
+	ctx := context.Background()
+	reader, err := gcsClient.GetFileReader(ctx, fileName)
+	if err != nil {
+		t.Error("Unexpected error when getting file reader: ", err)
+	}
+
+	b, err := io.ReadAll(reader)
+	if err != nil {
+		t.Error("Unexpected error when reading file: ", err)
+	}
+	if string(b) != fileData {
+		t.Error("Expected file data to contain: ", fileData)
+	}
+
 }
