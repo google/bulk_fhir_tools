@@ -7,11 +7,14 @@
 </a>
 
 This repository contains a set of libraries, tools, notebooks and documentation
-for working with Medical Claims data. In particular, this contains an example
+for working with FHIR Medical Claims data. In particular, this contains an example
 program and documentation to set up [periodic FHIR claims data ingestion](docs/periodic_gcp_ingestion.md) to local
 disk or GCP's
 [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir)
 from [Medicare's Beneficiary Claims Data API (BCDA)](https://bcda.cms.gov/).
+
+We are in the process of generalizing pieces of this repository to work
+with general bulk FHIR APIs.
 
 This repository also contains example [analysis notebooks](analytics)
 using synthetic data that showcase query patterns once the data is in FHIR Store
@@ -24,11 +27,13 @@ to follow your organization's policies with respect to PHI.__
 
 ## Overview
 <!---TODO(b/199179306): add links to code paths below.--->
+* `cmd/bcda_fetch/`: A configurable program for fetching FHIR data from
+  BCDA, and optionally saving to disk or sending to your FHIR Store. The tool
+  is highly configurable via flags, and can support pulling incremental data
+  only, among other features. See "bcda_fetch CLI Usage" for details on how
+  to use this program.
+* `bulkfhir/`: A generic client package for interacting with bulk FHIR APIs.
 * `bcda/`: A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
-* `cmd/bcda_fetch/`: A configurable example CLI program for fetching data from
-  BCDA, and optionally saving to disk or sending to your FHIR Store. The program
-  is highly configurable, and can support pulling incremental data only, among
-  other features.
 * `analytics/`: A folder with some analytics notebooks and examples.
 * `fhirstore/`: A go helper package for uploading to FHIR store.
 * `fhir/`: A go package with some helpful utilities for working with FHIR claims
@@ -36,10 +41,9 @@ to follow your organization's policies with respect to PHI.__
 
 ## bcda_fetch CLI Usage
 
-The example `bcda_fetch` command line program can be used to fetch data from
-the BCDA to save to disk or validate and upload to a [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir). This program can
-also be configured to run as a periodic cron job where it only fetches new data
-since the program last successfully ran.
+The example `bcda_fetch` command line program can be used to fetch claims data
+from the BCDA to save to disk or validate and upload to a [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir). This program can also be configured to run as a periodic cron job where it only fetches new
+data since the program last successfully ran.
 
 ### Build
 
@@ -50,8 +54,13 @@ repository (note you must have [Go](https://go.dev/dl/) installed):
 go build cmd/bcda_fetch/bcda_fetch.go
 ```
 
-To build on a GCP VM, you can follow these [instructions](docs/gcp_vm_setup.md)
-to get the environment setup.
+This will build the `bcda_fetch` binary and write it out in your current
+directory. Run `./bcda_fetch --help` for more information, or see the section
+below for `bcda_fetch` usage.
+
+To use this tool on a GCP VM, you can follow these
+[instructions](docs/gcp_vm_setup.md) to get the environment and bcda_fetch tool
+setup.
 
 ### Common Usage
 
