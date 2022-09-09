@@ -66,14 +66,14 @@ func NewClient(bucketName, endpointURL string) (Client, error) {
 // GetFileWriter returns a write closer that allows the user to write to a file named `fileName` in
 // the pre defined GCS bucket in a folder called `since`.
 // Closing the write closer will send the written data to GCS.
-func (gcsClient Client) GetFileWriter(fileName string, since time.Time) (io.WriteCloser, error) {
+func (gcsClient Client) GetFileWriter(fileName string, since time.Time) io.WriteCloser {
 	bkt := gcsClient.Bucket(gcsClient.bucketName)
 
 	// Use the `since` date as the folder where the resource will be written to.
 	objName := fmt.Sprintf("%s/%s", fhir.ToFHIRInstant(since), fileName)
 	obj := bkt.Object(objName)
 	writeCloser := obj.NewWriter(context.Background())
-	return writeCloser, nil
+	return writeCloser
 }
 
 // GetFileReader returns a reader for a file in GCS named `fileName`. The file must exist in the

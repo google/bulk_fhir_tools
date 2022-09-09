@@ -71,10 +71,7 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 		t.Error("Unexpected error when getting NewClient: ", err)
 	}
 
-	writeCloser, err := gcsClient.GetFileWriter(resourceName, since)
-	if err != nil {
-		t.Error("Unexpected error when getting file writer: ", err)
-	}
+	writeCloser := gcsClient.GetFileWriter(resourceName, since)
 
 	// Write data piece by piece.
 	_, err = writeCloser.Write([]byte(resourceData[0:5]))

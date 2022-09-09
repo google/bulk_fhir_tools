@@ -18,10 +18,12 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"flag"
@@ -30,15 +32,19 @@ import (
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhirstore"
+	"github.com/google/medical_claims_tools/gcs"
 	"github.com/google/medical_claims_tools/internal/counter"
 )
 
+// TODO(b/244579147): consider a yml config to represent configuration inputs
+// to the bcda_fetch program.
 var (
-	clientID                    = flag.String("client_id", "", "BCDA API client ID (required)")
-	clientSecret                = flag.String("client_secret", "", "BCDA API client secret (required)")
-	outputPrefix                = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
-	useV2                       = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
-	rectify                     = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
+	clientID     = flag.String("client_id", "", "BCDA API client ID (required)")
+	clientSecret = flag.String("client_secret", "", "BCDA API client secret (required)")
+	outputPrefix = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
+	useV2        = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
+	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
+
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
 	maxFHIRStoreUploadWorkers   = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
 	fhirStoreGCPProject         = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
@@ -48,12 +54,16 @@ var (
 	fhirStoreUploadErrorFileDir = flag.String("fhir_store_upload_error_file_dir", "", "An optional path to a directory where an upload errors file should be written. This file will contain the FHIR NDJSON and error information of FHIR resources that fail to upload to FHIR store.")
 	fhirStoreEnableBatchUpload  = flag.Bool("fhir_store_enable_batch_upload", false, "If true, uploads FHIR resources to FHIR Store in batch bundles.")
 	fhirStoreBatchUploadSize    = flag.Int("fhir_store_batch_upload_size", 0, "If set, this is the batch size used to upload FHIR batch bundles to FHIR store. If this flag is not set and fhir_store_enable_batch_upload is true, a default batch size is used.")
-	serverURL                   = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
-	since                       = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
-	sinceFile                   = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
-	noFailOnUploadErrors        = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
-	bcdaJobID                   = flag.String("bcda_job_id", "", "DEPRECATED in favor of bcda_job_url.")
-	bcdaJobURL                  = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
+
+	fhirStoreEnableGCSBasedUpload = flag.Bool("fhir_store_enable_gcs_based_upload", false, "If true, writes NDJSONs from the FHIR server to GCS, and then triggers a batch FHIR store import job from the GCS location. fhir_store_gcs_based_upload_bucket must also be set.")
+	fhirStoreGCSBasedUploadBucket = flag.String("fhir_store_gcs_based_upload_bucket", "", "If fhir_store_enable_gcs_based_upload is set, this must be provided to indicate the GCS bucket to write NDJSONs to.")
+
+	serverURL            = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
+	since                = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
+	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
+	noFailOnUploadErrors = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
+	bcdaJobID            = flag.String("bcda_job_id", "", "DEPRECATED in favor of bcda_job_url.")
+	bcdaJobURL           = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
 )
 
 var (
@@ -61,6 +71,7 @@ var (
 	errUploadFailures          = errors.New("fhir store upload failures")
 	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
 	errBCDAJobIDDeprecated     = errors.New("bcda_job_id flag is deprecated in favor of the bcda_job_url flag")
+	errMustSpecifyGCSBucket    = errors.New("if fhir_store_enable_gcs_based_upload=true, fhir_store_gcs_based_upload_bucket must be set")
 )
 
 const (
@@ -69,6 +80,12 @@ const (
 	// jobStatusTimeout indicates the maximum time that should be spend checking on
 	// a pending JobStatus.
 	jobStatusTimeout = 6 * time.Hour
+	// gcsImportJobPeriod indicates how often the program should check the FHIR
+	// store GCS import job.
+	gcsImportJobPeriod = 5 * time.Second
+	// gcsImportJobTimeout indicates the maximum time that should be spent
+	// checking on the FHIR Store GCS import job.
+	gcsImportJobTimeout = 6 * time.Hour
 	// maxTokenSize represents the maximum newline delimited token size in bytes
 	// expected when parsing FHIR NDJSON.
 	maxTokenSize = 500 * 1024
@@ -106,6 +123,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	if cfg.enableFHIRStore && !cfg.rectify {
 		return errMustRectifyForFHIRStore
+	}
+
+	if cfg.fhirStoreEnableGCSBasedUpload && cfg.fhirStoreGCSBasedUploadBucket == "" {
+		return errMustSpecifyGCSBucket
 	}
 
 	if cfg.outputPrefix == "" && !cfg.enableFHIRStore {
@@ -164,10 +185,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	for r, urls := range jobStatus.ResultURLs {
 		for i, url := range urls {
-			filePrefix := ""
-			if cfg.outputPrefix != "" {
-				filePrefix = fmt.Sprintf("%s_%s_%d", cfg.outputPrefix, r, i)
-			}
+			filename := fmt.Sprintf("%s_%d.ndjson", r, i)
 
 			r, err := getDataOrExit(cl, url, cfg.clientID, cfg.clientSecret)
 			if err != nil {
@@ -175,11 +193,53 @@ func mainWrapper(cfg mainWrapperConfig) error {
 			}
 			defer r.Close()
 			if cfg.rectify {
-				rectifyAndWrite(r, filePrefix, cfg, fhirStoreUploadErrorCounter)
+				rectifyAndWrite(r, filename, cfg, jobStatus.TransactionTime, fhirStoreUploadErrorCounter)
 			} else {
-				writeData(r, filePrefix)
+				writeData(r, cfg.outputPrefix, filename)
 			}
 		}
+	}
+
+	// After files are written, trigger FHIR Store GCS import if needed.
+	if cfg.fhirStoreEnableGCSBasedUpload && cfg.enableFHIRStore {
+		fc, err := fhirstore.NewClient(context.Background(), cfg.fhirStoreEndpoint)
+		if err != nil {
+			return err
+		}
+
+		gcsURI := fmt.Sprintf("gs://%s/%s/**", cfg.fhirStoreGCSBasedUploadBucket, fhir.ToFHIRInstant(jobStatus.TransactionTime))
+		log.Infof("Starting the import job from GCS location where FHIR data was saved: %s", gcsURI)
+		opName, err := fc.ImportFromGCS(
+			gcsURI,
+			cfg.fhirStoreGCPProject,
+			cfg.fhirStoreGCPLocation,
+			cfg.fhirStoreGCPDatasetID,
+			cfg.fhirStoreID)
+
+		if err != nil {
+			return err
+		}
+
+		isDone := false
+		deadline := time.Now().Add(gcsImportJobTimeout)
+		for !isDone && time.Now().Before(deadline) {
+			time.Sleep(gcsImportJobPeriod)
+			log.Infof("GCS Import Job still pending...")
+
+			isDone, err = fc.CheckGCSImportStatus(opName)
+			if err != nil {
+				log.Errorf("Error reported from the GCS FHIR store Import Job: %s", err)
+				if !cfg.noFailOnUploadErrors {
+					return fmt.Errorf("error from the GCS FHIR Store Import Job: %w", err)
+				}
+				break
+			}
+		}
+
+		if !isDone {
+			return errors.New("fhir store import via GCS timed out")
+		}
+		log.Infof("FHIR Store import is complete!")
 	}
 
 	// Check failure counters.
@@ -227,8 +287,8 @@ func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.
 	return r, nil
 }
 
-func writeData(r io.Reader, filePrefix string) {
-	f, err := os.OpenFile(fmt.Sprintf("%s.ndjson", filePrefix), os.O_RDWR|os.O_CREATE, 0755)
+func writeData(r io.Reader, outputPrefix, filename string) {
+	f, err := os.OpenFile(fmt.Sprintf("%s_%s", outputPrefix, filename), os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
 		log.Exitf("Unable to create output file. Error: %v", err)
 	}
@@ -240,16 +300,17 @@ func writeData(r io.Reader, filePrefix string) {
 	}
 }
 
-func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig, fhirStoreUploadErrorCounter *counter.Counter) {
-	var w io.WriteCloser = nil
-	if filePrefix != "" {
-		var err error
-		w, err = os.OpenFile(fmt.Sprintf("%s.ndjson", filePrefix), os.O_RDWR|os.O_CREATE, 0755)
-		if err != nil {
-			log.Exitf("Unable to create output file: %v", err)
+// rectifyAndWrite is responsible for reading FHIR resources from the NDJSON
+// reader provided, rectifying them, optionally writing them to disk and/or GCS,
+// and uploading them directly to GCS if appropiate. This is done "all at once"
+// for each FHIR resource read from the reader.
+func rectifyAndWrite(r io.Reader, filename string, cfg mainWrapperConfig, since time.Time, fhirStoreUploadErrorCounter *counter.Counter) {
+	filesWriter := getFilesWriter(filename, cfg, since)
+	defer func() {
+		if err := filesWriter.Close(); err != nil {
+			log.Errorf("error when closing the file writers: %v", err)
 		}
-		defer w.Close()
-	}
+	}()
 
 	uploader, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
 		FHIRStoreEndpoint:   cfg.fhirStoreEndpoint,
@@ -268,6 +329,11 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig, fhir
 		log.Exitf("unable to init uploader: %v", err)
 	}
 
+	// indicates if the FHIRStore Uploader should be used. It shouldn't be used
+	// if using GCS based upload, as that is handled by triggering a sepearte
+	// batch import job.
+	shouldUseFHIRStoreUploader := cfg.enableFHIRStore && !cfg.fhirStoreEnableGCSBasedUpload
+
 	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
 	for s.Scan() {
@@ -278,27 +344,52 @@ func rectifyAndWrite(r io.Reader, filePrefix string, cfg mainWrapperConfig, fhir
 			fhirOut = s.Bytes()
 		}
 
-		// Add this FHIR resource to the queue to be written to FHIR store.
-		if cfg.enableFHIRStore {
+		// Add this FHIR resource to the queue to be written to FHIR Store via the
+		// Uploader API.
+		if shouldUseFHIRStoreUploader {
 			uploader.Upload(fhirOut)
 		}
 
-		if w != nil {
+		if filesWriter != nil {
 			// We write with a newline because this is a newline delimited JSON file.
-			if _, err := w.Write(append(fhirOut, byte('\n'))); err != nil {
+			if _, err := filesWriter.Write(append(fhirOut, byte('\n'))); err != nil {
 				log.Exitf("issue during file write: %v", err)
 			}
 		}
 	}
+
 	// Since there is only one sender goroutine (this one), it should be safe to
 	// indicate we're done sending here, after we have finished sending all the
 	// work in the for loop above.
-	if cfg.enableFHIRStore {
+	if shouldUseFHIRStoreUploader {
 		uploader.DoneUploading()
 		if err := uploader.Wait(); err != nil {
 			log.Warningf("error closing the uploader: %v", err)
 		}
 	}
+}
+
+func getFilesWriter(filename string, cfg mainWrapperConfig, since time.Time) io.WriteCloser {
+	multiFilesWriter := &multiWriteCloser{}
+	if cfg.outputPrefix != "" {
+		w, err := os.OpenFile(fmt.Sprintf("%s_%s", cfg.outputPrefix, filename), os.O_RDWR|os.O_CREATE, 0755)
+		multiFilesWriter.Add(w)
+		if err != nil {
+			log.Exitf("Unable to create output file: %v", err)
+		}
+	}
+
+	if cfg.fhirStoreEnableGCSBasedUpload {
+		gcsClient, err := gcs.NewClient(cfg.fhirStoreGCSBasedUploadBucket, cfg.gcsEndpoint)
+		if err != nil {
+			log.Exitf("unable to create gcs client")
+		}
+
+		gcsWriter := gcsClient.GetFileWriter(filename, since)
+		multiFilesWriter.Add(gcsWriter)
+	}
+
+	return multiFilesWriter
 }
 
 func getSince(since, sinceFile string) (time.Time, error) {
@@ -353,37 +444,44 @@ func getSince(since, sinceFile string) (time.Time, error) {
 // struct in the future.
 type mainWrapperConfig struct {
 	fhirStoreEndpoint string
+	gcsEndpoint       string
+
 	// Fields that originate from flags:
-	clientID                    string
-	clientSecret                string
-	outputPrefix                string
-	useV2                       bool
-	rectify                     bool
-	enableFHIRStore             bool
-	maxFHIRStoreUploadWorkers   int
-	fhirStoreGCPProject         string
-	fhirStoreGCPLocation        string
-	fhirStoreGCPDatasetID       string
-	fhirStoreID                 string
-	fhirStoreUploadErrorFileDir string
-	fhirStoreEnableBatchUpload  bool
-	fhirStoreBatchUploadSize    int
-	serverURL                   string
-	since                       string
-	sinceFile                   string
-	noFailOnUploadErrors        bool
-	bcdaJobID                   string
-	bcdaJobURL                  string
+	clientID                      string
+	clientSecret                  string
+	outputPrefix                  string
+	useV2                         bool
+	rectify                       bool
+	enableFHIRStore               bool
+	maxFHIRStoreUploadWorkers     int
+	fhirStoreGCPProject           string
+	fhirStoreGCPLocation          string
+	fhirStoreGCPDatasetID         string
+	fhirStoreID                   string
+	fhirStoreUploadErrorFileDir   string
+	fhirStoreEnableBatchUpload    bool
+	fhirStoreBatchUploadSize      int
+	fhirStoreEnableGCSBasedUpload bool
+	fhirStoreGCSBasedUploadBucket string
+	serverURL                     string
+	since                         string
+	sinceFile                     string
+	noFailOnUploadErrors          bool
+	bcdaJobID                     string
+	bcdaJobURL                    string
 }
 
 func buildMainWrapperConfig() mainWrapperConfig {
 	return mainWrapperConfig{
-		fhirStoreEndpoint:           fhirstore.DefaultHealthcareEndpoint,
-		clientID:                    *clientID,
-		clientSecret:                *clientSecret,
-		outputPrefix:                *outputPrefix,
-		useV2:                       *useV2,
-		rectify:                     *rectify,
+		fhirStoreEndpoint: fhirstore.DefaultHealthcareEndpoint,
+		gcsEndpoint:       gcs.DefaultCloudStorageEndpoint,
+
+		clientID:     *clientID,
+		clientSecret: *clientSecret,
+		outputPrefix: *outputPrefix,
+		useV2:        *useV2,
+		rectify:      *rectify,
+
 		enableFHIRStore:             *enableFHIRStore,
 		maxFHIRStoreUploadWorkers:   *maxFHIRStoreUploadWorkers,
 		fhirStoreGCPProject:         *fhirStoreGCPProject,
@@ -393,11 +491,53 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		fhirStoreUploadErrorFileDir: *fhirStoreUploadErrorFileDir,
 		fhirStoreEnableBatchUpload:  *fhirStoreEnableBatchUpload,
 		fhirStoreBatchUploadSize:    *fhirStoreBatchUploadSize,
-		serverURL:                   *serverURL,
-		since:                       *since,
-		sinceFile:                   *sinceFile,
-		noFailOnUploadErrors:        *noFailOnUploadErrors,
-		bcdaJobID:                   *bcdaJobID,
-		bcdaJobURL:                  *bcdaJobURL,
+
+		fhirStoreEnableGCSBasedUpload: *fhirStoreEnableGCSBasedUpload,
+		fhirStoreGCSBasedUploadBucket: *fhirStoreGCSBasedUploadBucket,
+
+		serverURL:            *serverURL,
+		since:                *since,
+		sinceFile:            *sinceFile,
+		noFailOnUploadErrors: *noFailOnUploadErrors,
+		bcdaJobID:            *bcdaJobID,
+		bcdaJobURL:           *bcdaJobURL,
 	}
+}
+
+// multiWriteCloser wraps multiple WriteClosers into a single one.
+type multiWriteCloser struct {
+	writerClosers []io.WriteCloser
+}
+
+// Add a new WriteCloser to the multiWriteCloser.
+func (m *multiWriteCloser) Add(wc io.WriteCloser) {
+	m.writerClosers = append(m.writerClosers, wc)
+}
+
+// Write writes the specified bytes to every WriteCloser within this
+// multiWriteCloser
+func (m *multiWriteCloser) Write(p []byte) (n int, err error) {
+	for _, w := range m.writerClosers {
+		n, err = w.Write(p)
+		if err != nil {
+			return n, err
+		}
+		if n != len(p) {
+			return n, io.ErrShortWrite
+		}
+	}
+	return len(p), nil
+}
+
+// Close closes every WriteCloser within this multiWriteCloser. If multiple
+// have errors on close, the errors are combined into a single error and
+// returned.
+func (m *multiWriteCloser) Close() error {
+	errStrings := make([]string, 0, len(m.writerClosers))
+	for _, w := range m.writerClosers {
+		if err := w.Close(); err != nil {
+			errStrings = append(errStrings, err.Error())
+		}
+	}
+	return errors.New(strings.Join(errStrings, ","))
 }

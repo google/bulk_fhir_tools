@@ -15,17 +15,21 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path"
 	"sync"
 	"testing"
 
+	"github.com/google/medical_claims_tools/gcs"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
@@ -1173,6 +1177,172 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 	}
 }
 
+func TestMainWrapper_GCSBasedUpload(t *testing.T) {
+	t.Parallel()
+	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+	file1Data := []byte(patient1)
+	exportEndpoint := "/api/v2/Group/all/$export"
+	jobStatusURLSuffix := "/api/v2/jobs/1234"
+	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+	bucketName := "bucket"
+
+	// Set minimal flags for this test case:
+	outputPrefix := t.TempDir()
+	gcpProject := "project"
+	gcpLocation := "location"
+	gcpDatasetID := "dataset"
+	gcpFHIRStoreID := "fhirID"
+
+	// Setup BCDA test servers:
+
+	// A seperate resource server is needed during testing, so that we can send
+	// the jobsEndpoint response in the bcdaServer that includes a URL for the
+	// bcdaResourceServer in it.
+	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(file1Data)
+	}))
+	defer bcdaResourceServer.Close()
+
+	jobStatusURL := ""
+	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/auth/token":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"access_token": "token"}`))
+		case exportEndpoint:
+			w.Header()["Content-Location"] = []string{jobStatusURL}
+			w.WriteHeader(http.StatusAccepted)
+		case jobStatusURLSuffix:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer bcdaServer.Close()
+
+	jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
+
+	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fileWritePath := ("/upload/storage/v1/b/" +
+			bucketName + "/o?alt=json&name=" +
+			url.QueryEscape(serverTransactionTime+"/"+"Patient_0.ndjson") +
+			"&prettyPrint=false&projection=full&uploadType=multipart")
+
+		if req.URL.String() != fileWritePath {
+			t.Errorf("gcs server got unexpected request. got: %v, want: %v", req.URL.String(), fileWritePath)
+		}
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("gcs server error reading body.")
+		}
+		if !bytes.Contains(data, file1Data) {
+			t.Errorf("gcs server unexpected data: got: %s, want: %s", data, file1Data)
+		}
+	}))
+
+	importCalled := false
+	statusCalled := false
+	expectedImportRequest := gcsImportRequest{
+		ContentStructure: "RESOURCE",
+		GCSSource: gcsSource{
+			URI: "gs://bucket/2020-12-09T11:00:00.123+00:00/**",
+		},
+	}
+	expectedImportPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s:import?alt=json&prettyPrint=false", gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+	opName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/operations/OPNAME", gcpProject, gcpLocation, gcpDatasetID)
+	expectedStatusPath := "/v1/" + opName + "?alt=json&prettyPrint=false"
+	fhirStoreServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.String() {
+		case expectedImportPath:
+			bodyData, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Errorf("fhir server unexpected error when reading body: %v", err)
+			}
+			var importReq gcsImportRequest
+			if err := json.Unmarshal(bodyData, &importReq); err != nil {
+				t.Errorf("error unmarshalling request body in fhir server: %v", err)
+			}
+			if !cmp.Equal(importReq, expectedImportRequest) {
+				t.Errorf("FHIR store test server received unexpected gcsURI. got: %v, want: %v", importReq, expectedImportRequest)
+			}
+			importCalled = true
+			w.Write([]byte(fmt.Sprintf("{\"name\": \"%s\"}", opName)))
+			return
+		case expectedStatusPath:
+			statusCalled = true
+			w.Write([]byte(`{"done": true}`))
+			return
+		default:
+			t.Errorf("fhir server got unexpected URL. got: %v, want: %s or %s", req.URL.String(), expectedImportPath, expectedStatusPath)
+		}
+	}))
+
+	// Set mainWrapperConfig for this test case. In practice, values are
+	// populated in mainWrapperConfig from flags. Setting the config struct
+	// instead of the flags in tests enables parallelization with significant
+	// performance improvement. A seperate test below tests that setting flags
+	// properly populates mainWrapperConfig.
+	cfg := mainWrapperConfig{
+		gcsEndpoint:                   gcsServer.URL,
+		fhirStoreEndpoint:             fhirStoreServer.URL,
+		clientID:                      "id",
+		clientSecret:                  "secret",
+		outputPrefix:                  outputPrefix,
+		serverURL:                     bcdaServer.URL,
+		fhirStoreGCPProject:           gcpProject,
+		fhirStoreGCPLocation:          gcpLocation,
+		fhirStoreGCPDatasetID:         gcpDatasetID,
+		fhirStoreID:                   gcpFHIRStoreID,
+		fhirStoreEnableGCSBasedUpload: true,
+		fhirStoreGCSBasedUploadBucket: bucketName,
+		enableFHIRStore:               true,
+		rectify:                       true,
+		useV2:                         true,
+	}
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != nil {
+		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
+
+	if !importCalled {
+		t.Errorf("mainWrapper(%v) expected FHIR Store import to be called, but was not", cfg)
+	}
+	if !statusCalled {
+		t.Errorf("mainWrapper(%v) expected FHIR Store import operation status to be called, but was not", cfg)
+	}
+
+	// Check that files were also written to disk under outputPrefix
+	fullPath := outputPrefix + "_Patient_0.ndjson"
+	r, err := os.Open(fullPath)
+	if err != nil {
+		t.Errorf("unable to open file %s: %s", fullPath, err)
+	}
+	defer r.Close()
+	gotData, err := io.ReadAll(r)
+	if err != nil {
+		t.Errorf("error reading file %s: %v", fullPath, err)
+	}
+	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
+		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+	}
+}
+
+func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
+	cfg := mainWrapperConfig{
+		clientID:                      "id",
+		clientSecret:                  "secret",
+		fhirStoreEnableGCSBasedUpload: true,
+		// fhirStoreGCSBasedUploadBucket not specified.
+	}
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != errMustSpecifyGCSBucket {
+		t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, errMustSpecifyGCSBucket)
+	}
+}
+
 func TestBuildMainWrapperConfig(t *testing.T) {
 	// Set every flag, and see that it is built into mainWrapper correctly.
 	defer SaveFlags().Restore()
@@ -1192,6 +1362,8 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("fhir_store_upload_error_file_dir", "uploadDir")
 	flag.Set("fhir_store_enable_batch_upload", "true")
 	flag.Set("fhir_store_batch_upload_size", "10")
+	flag.Set("fhir_store_enable_gcs_based_upload", "true")
+	flag.Set("fhir_store_gcs_based_upload_bucket", "my-bucket")
 	flag.Set("bcda_server_url", "url")
 	flag.Set("since", "12345")
 	flag.Set("since_file", "sinceFile")
@@ -1199,26 +1371,29 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("bcda_job_url", "jobURL")
 
 	expectedCfg := mainWrapperConfig{
-		fhirStoreEndpoint:           fhirstore.DefaultHealthcareEndpoint,
-		clientID:                    "clientID",
-		clientSecret:                "clientSecret",
-		outputPrefix:                "outputPrefix",
-		useV2:                       true,
-		rectify:                     true,
-		enableFHIRStore:             true,
-		maxFHIRStoreUploadWorkers:   99,
-		fhirStoreGCPProject:         "project",
-		fhirStoreGCPLocation:        "location",
-		fhirStoreGCPDatasetID:       "dataset",
-		fhirStoreID:                 "id",
-		fhirStoreUploadErrorFileDir: "uploadDir",
-		fhirStoreEnableBatchUpload:  true,
-		fhirStoreBatchUploadSize:    10,
-		serverURL:                   "url",
-		since:                       "12345",
-		sinceFile:                   "sinceFile",
-		noFailOnUploadErrors:        true,
-		bcdaJobURL:                  "jobURL",
+		fhirStoreEndpoint:             fhirstore.DefaultHealthcareEndpoint,
+		gcsEndpoint:                   gcs.DefaultCloudStorageEndpoint,
+		clientID:                      "clientID",
+		clientSecret:                  "clientSecret",
+		outputPrefix:                  "outputPrefix",
+		useV2:                         true,
+		rectify:                       true,
+		enableFHIRStore:               true,
+		maxFHIRStoreUploadWorkers:     99,
+		fhirStoreGCPProject:           "project",
+		fhirStoreGCPLocation:          "location",
+		fhirStoreGCPDatasetID:         "dataset",
+		fhirStoreID:                   "id",
+		fhirStoreUploadErrorFileDir:   "uploadDir",
+		fhirStoreEnableBatchUpload:    true,
+		fhirStoreBatchUploadSize:      10,
+		fhirStoreEnableGCSBasedUpload: true,
+		fhirStoreGCSBasedUploadBucket: "my-bucket",
+		serverURL:                     "url",
+		since:                         "12345",
+		sinceFile:                     "sinceFile",
+		noFailOnUploadErrors:          true,
+		bcdaJobURL:                    "jobURL",
 	}
 
 	if diff := cmp.Diff(buildMainWrapperConfig(), expectedCfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
@@ -1285,4 +1460,13 @@ func (s *Stash) Restore() {
 			flag.Set(f.Name, prevVal)
 		}
 	})
+}
+
+type gcsSource struct {
+	URI string `json:"uri"`
+}
+
+type gcsImportRequest struct {
+	ContentStructure string    `json:"contentStructure"`
+	GCSSource        gcsSource `json:"gcsSource"`
 }
