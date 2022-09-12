@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"flag"
@@ -34,6 +33,7 @@ import (
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/gcs"
 	"github.com/google/medical_claims_tools/internal/counter"
+	"github.com/google/medical_claims_tools/internal/iohelpers"
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
@@ -370,7 +370,7 @@ func rectifyAndWrite(r io.Reader, filename string, cfg mainWrapperConfig, since 
 }
 
 func getFilesWriter(filename string, cfg mainWrapperConfig, since time.Time) io.WriteCloser {
-	multiFilesWriter := &multiWriteCloser{}
+	multiFilesWriter := &iohelpers.MultiWriteCloser{}
 	if cfg.outputPrefix != "" {
 		w, err := os.OpenFile(fmt.Sprintf("%s_%s", cfg.outputPrefix, filename), os.O_RDWR|os.O_CREATE, 0755)
 		multiFilesWriter.Add(w)
@@ -502,42 +502,4 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		bcdaJobID:            *bcdaJobID,
 		bcdaJobURL:           *bcdaJobURL,
 	}
-}
-
-// multiWriteCloser wraps multiple WriteClosers into a single one.
-type multiWriteCloser struct {
-	writerClosers []io.WriteCloser
-}
-
-// Add a new WriteCloser to the multiWriteCloser.
-func (m *multiWriteCloser) Add(wc io.WriteCloser) {
-	m.writerClosers = append(m.writerClosers, wc)
-}
-
-// Write writes the specified bytes to every WriteCloser within this
-// multiWriteCloser
-func (m *multiWriteCloser) Write(p []byte) (n int, err error) {
-	for _, w := range m.writerClosers {
-		n, err = w.Write(p)
-		if err != nil {
-			return n, err
-		}
-		if n != len(p) {
-			return n, io.ErrShortWrite
-		}
-	}
-	return len(p), nil
-}
-
-// Close closes every WriteCloser within this multiWriteCloser. If multiple
-// have errors on close, the errors are combined into a single error and
-// returned.
-func (m *multiWriteCloser) Close() error {
-	errStrings := make([]string, 0, len(m.writerClosers))
-	for _, w := range m.writerClosers {
-		if err := w.Close(); err != nil {
-			errStrings = append(errStrings, err.Error())
-		}
-	}
-	return errors.New(strings.Join(errStrings, ","))
 }
