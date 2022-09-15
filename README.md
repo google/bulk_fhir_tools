@@ -6,6 +6,8 @@
   <img src="https://godoc.org/github.com/google/medical_claims_tools?status.svg" alt="Go Documentation" />
 </a>
 
+👀 _Please tell us more about your interest in or usage of these tools at our [survey here](https://docs.google.com/forms/d/e/1FAIpQLSdmWHaGc41gWiobMT6kNd0PGPPeWGeS-LyG6CrGZ79moaUIEQ/viewform)!_
+
 This repository contains a set of libraries, tools, notebooks and documentation
 for working with FHIR Medical Claims data. In particular, this contains an example
 program and documentation to set up [periodic FHIR claims data ingestion](docs/periodic_gcp_ingestion.md) to local
