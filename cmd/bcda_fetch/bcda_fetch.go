@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"flag"
@@ -58,7 +59,12 @@ var (
 	fhirStoreEnableGCSBasedUpload = flag.Bool("fhir_store_enable_gcs_based_upload", false, "If true, writes NDJSONs from the FHIR server to GCS, and then triggers a batch FHIR store import job from the GCS location. fhir_store_gcs_based_upload_bucket must also be set.")
 	fhirStoreGCSBasedUploadBucket = flag.String("fhir_store_gcs_based_upload_bucket", "", "If fhir_store_enable_gcs_based_upload is set, this must be provided to indicate the GCS bucket to write NDJSONs to.")
 
-	serverURL            = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
+	bcdaServerURL               = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By deafult this is https://sandbox.bcda.cms.gov")
+	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "Indicates if the generalized (non-BCDA) bulk fhir flags should be used to configure the fetch. If true, fhir_server_base_url, fhir_auth_url, and fhir_auth_scopes must be set. This overrides any of the bcda-specific flags.")
+	baseServerURL               = flag.String("fhir_server_base_url", "", "The full bulk FHIR server base URL to communicate with. For example, https://sandbox.bcda.cms.gov/api/v2")
+	authURL                     = flag.String("fhir_auth_url", "", "The full authentication or \"token\" URL to use for authenticating with the FHIR server. For example, https://sandbox.bcda.cms.gov/auth/token")
+	fhirAuthScopes              = flag.String("fhir_auth_scopes", "", "A comma seperated list of auth scopes that should be requested when getting an auth token.")
+
 	since                = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
 	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
 	noFailOnUploadErrors = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
@@ -133,15 +139,15 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		log.Warningln("outputPrefix is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
-	apiVersion := bcda.V1
-	if cfg.useV2 {
-		apiVersion = bcda.V2
-	}
-
-	cl, err := bcda.NewClient(cfg.serverURL, apiVersion, cfg.clientID, cfg.clientSecret)
+	cl, err := getBulkFHIRClient(cfg)
 	if err != nil {
-		return fmt.Errorf("NewClient(%v, %v) error: %v", cfg.serverURL, apiVersion, err)
+		return fmt.Errorf("Error making bulkfhir client: %v", err)
 	}
+	defer func() {
+		if err := cl.Close(); err != nil {
+			log.Errorf("error closing the bulkfhir client: %v", err)
+		}
+	}()
 
 	_, err = cl.Authenticate()
 	if err != nil {
@@ -437,6 +443,21 @@ func getSince(since, sinceFile string) (time.Time, error) {
 	return parsedSince, nil
 }
 
+// getBulkFHIRClient builds and returns the right kind of bulk fhir client to
+// use, based on the mainWrapperConfig. If generalized FHIR flags are set,
+// those are used, otherwise the bcda specific flags are used to make a
+// traiditonal BCDA client. Eventually BCDA specific logic will be deprecated.
+func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
+	if cfg.useGeneralizedBulkImport {
+		return bulkfhir.NewClient(cfg.baseServerURL, cfg.authURL, cfg.clientID, cfg.clientSecret, cfg.fhirAuthScopes)
+	}
+	apiVersion := bcda.V1
+	if cfg.useV2 {
+		apiVersion = bcda.V2
+	}
+	return bcda.NewClient(cfg.bcdaServerURL, apiVersion, cfg.clientID, cfg.clientSecret)
+}
+
 // mainWrapperConfig holds non-flag (for now) config variables for the
 // mainWrapper function. This is largely to assist in better testing without
 // having to change global variables.
@@ -463,7 +484,11 @@ type mainWrapperConfig struct {
 	fhirStoreBatchUploadSize      int
 	fhirStoreEnableGCSBasedUpload bool
 	fhirStoreGCSBasedUploadBucket string
-	serverURL                     string
+	bcdaServerURL                 string
+	useGeneralizedBulkImport      bool
+	baseServerURL                 string
+	authURL                       string
+	fhirAuthScopes                []string
 	since                         string
 	sinceFile                     string
 	noFailOnUploadErrors          bool
@@ -495,11 +520,15 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		fhirStoreEnableGCSBasedUpload: *fhirStoreEnableGCSBasedUpload,
 		fhirStoreGCSBasedUploadBucket: *fhirStoreGCSBasedUploadBucket,
 
-		serverURL:            *serverURL,
-		since:                *since,
-		sinceFile:            *sinceFile,
-		noFailOnUploadErrors: *noFailOnUploadErrors,
-		bcdaJobID:            *bcdaJobID,
-		bcdaJobURL:           *bcdaJobURL,
+		bcdaServerURL:            *bcdaServerURL,
+		useGeneralizedBulkImport: *enableGeneralizedBulkImport,
+		baseServerURL:            *baseServerURL,
+		authURL:                  *authURL,
+		fhirAuthScopes:           strings.Split(*fhirAuthScopes, ","),
+		since:                    *since,
+		sinceFile:                *sinceFile,
+		noFailOnUploadErrors:     *noFailOnUploadErrors,
+		bcdaJobID:                *bcdaJobID,
+		bcdaJobURL:               *bcdaJobURL,
 	}
 }

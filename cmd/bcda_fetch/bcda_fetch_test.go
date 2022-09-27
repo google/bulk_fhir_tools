@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"testing"
 
@@ -35,6 +36,7 @@ import (
 	"flag"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhirstore"
@@ -493,7 +495,7 @@ func TestMainWrapper(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputPrefix:               outputPrefix,
-				serverURL:                  bcdaServer.URL,
+				bcdaServerURL:              bcdaServer.URL,
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
@@ -733,7 +735,7 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputPrefix:              outputPrefix,
-				serverURL:                 bcdaServer.URL,
+				bcdaServerURL:             bcdaServer.URL,
 				sinceFile:                 sinceFilePath,
 				maxFHIRStoreUploadWorkers: 10,
 			}
@@ -853,7 +855,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputPrefix:              outputPrefix,
-				serverURL:                 bcdaServer.URL,
+				bcdaServerURL:             bcdaServer.URL,
 				maxFHIRStoreUploadWorkers: 10,
 			}
 
@@ -1008,7 +1010,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputPrefix:              outputPrefix,
-				serverURL:                 bcdaServer.URL,
+				bcdaServerURL:             bcdaServer.URL,
 				maxFHIRStoreUploadWorkers: 10,
 			}
 
@@ -1149,7 +1151,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputPrefix:               outputPrefix,
-				serverURL:                  bcdaServer.URL,
+				bcdaServerURL:              bcdaServer.URL,
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
@@ -1291,7 +1293,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		clientID:                      "id",
 		clientSecret:                  "secret",
 		outputPrefix:                  outputPrefix,
-		serverURL:                     bcdaServer.URL,
+		bcdaServerURL:                 bcdaServer.URL,
 		fhirStoreGCPProject:           gcpProject,
 		fhirStoreGCPLocation:          gcpLocation,
 		fhirStoreGCPDatasetID:         gcpDatasetID,
@@ -1343,6 +1345,110 @@ func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
 	}
 }
 
+func TestMainWrapper_GeneralizedImport(t *testing.T) {
+	t.Parallel()
+	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+	file1Data := []byte(patient1)
+
+	baseURLSuffix := "/api/v20"
+
+	exportEndpoint := "/api/v20/Group/all/$export"
+	jobStatusURLSuffix := "/api/v20/jobs/1234"
+	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+	scopes := []string{"a", "b", "c"}
+
+	// Setup bulk fhir test servers:
+	jobStatusURL := ""
+
+	// A seperate resource server is needed during testing, so that we can send
+	// the jobsEndpoint response in the bulkFHIRServer that includes a URL for the
+	// bulkFHIRResourceServer in it.
+	bulkFHIRResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(file1Data)
+	}))
+	defer bulkFHIRResourceServer.Close()
+
+	bulkFHIRServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/auth/token":
+			if err := req.ParseForm(); err != nil {
+				t.Errorf("Authenticate was sent a body that could not be parsed as a form: %s", err)
+			}
+			if got := len(req.Form["scope"]); got != 1 {
+				t.Errorf("Authenticate was sent invalid number of scope values. got: %v, want: %v", got, 1)
+			}
+			splitScopes := strings.Split(req.Form["scope"][0], " ")
+			if diff := cmp.Diff(splitScopes, scopes, cmpopts.SortSlices(func(a, b string) bool { return a > b })); diff != "" {
+				t.Errorf("Authenticate got invalid scopes. diff: %s", diff)
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"access_token": "token"}`))
+		case exportEndpoint:
+			// Check that since is empty
+			if got := len(req.URL.Query()["_since"]); got != 0 {
+				t.Errorf("got unexpected _since URL param length. got: %v, want: %v", got, 0)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			w.Header()["Content-Location"] = []string{jobStatusURL}
+
+			w.WriteHeader(http.StatusAccepted)
+		case jobStatusURLSuffix:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bulkFHIRResourceServer.URL, serverTransactionTime)))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer bulkFHIRServer.Close()
+	jobStatusURL = bulkFHIRServer.URL + jobStatusURLSuffix
+
+	bulkFHIRBaseURL := bulkFHIRServer.URL + baseURLSuffix
+	authURL := bulkFHIRServer.URL + "/auth/token"
+
+	outputPrefix := t.TempDir()
+
+	// Set mainWrapperConfig for this test case. In practice, values are
+	// populated in mainWrapperConfig from flags. Setting the config struct
+	// instead of the flags in tests enables parallelization with significant
+	// performance improvement. A seperate test below tests that setting flags
+	// properly populates mainWrapperConfig.
+	cfg := mainWrapperConfig{
+		clientID:                 "id",
+		clientSecret:             "secret",
+		outputPrefix:             outputPrefix,
+		useGeneralizedBulkImport: true,
+		baseServerURL:            bulkFHIRBaseURL,
+		authURL:                  authURL,
+		fhirAuthScopes:           scopes,
+		rectify:                  true,
+	}
+
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != nil {
+		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
+
+	// Check that files were also written to disk under outputPrefix
+	fullPath := outputPrefix + "_Patient_0.ndjson"
+	r, err := os.Open(fullPath)
+	if err != nil {
+		t.Errorf("unable to open file %s: %s", fullPath, err)
+	}
+	defer r.Close()
+	gotData, err := io.ReadAll(r)
+	if err != nil {
+		t.Errorf("error reading file %s: %v", fullPath, err)
+	}
+	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
+		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+	}
+
+}
+
 func TestBuildMainWrapperConfig(t *testing.T) {
 	// Set every flag, and see that it is built into mainWrapper correctly.
 	defer SaveFlags().Restore()
@@ -1365,6 +1471,10 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("fhir_store_enable_gcs_based_upload", "true")
 	flag.Set("fhir_store_gcs_based_upload_bucket", "my-bucket")
 	flag.Set("bcda_server_url", "url")
+	flag.Set("enable_generalized_bulk_import", "true")
+	flag.Set("fhir_server_base_url", "url")
+	flag.Set("fhir_auth_url", "url")
+	flag.Set("fhir_auth_scopes", "scope1,scope2")
 	flag.Set("since", "12345")
 	flag.Set("since_file", "sinceFile")
 	flag.Set("no_fail_on_upload_errors", "true")
@@ -1389,7 +1499,11 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		fhirStoreBatchUploadSize:      10,
 		fhirStoreEnableGCSBasedUpload: true,
 		fhirStoreGCSBasedUploadBucket: "my-bucket",
-		serverURL:                     "url",
+		bcdaServerURL:                 "url",
+		useGeneralizedBulkImport:      true,
+		baseServerURL:                 "url",
+		authURL:                       "url",
+		fhirAuthScopes:                []string{"scope1", "scope2"},
 		since:                         "12345",
 		sinceFile:                     "sinceFile",
 		noFailOnUploadErrors:          true,
