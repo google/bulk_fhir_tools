@@ -1449,6 +1449,124 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 
 }
 
+func TestMainWrapper_GCSBasedSince(t *testing.T) {
+	t.Parallel()
+	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+	file1Data := []byte(patient1)
+	exportEndpoint := "/api/v2/Group/all/$export"
+	jobStatusURLSuffix := "/api/v2/jobs/1234"
+	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+	// Set minimal flags for this test case:
+	outputPrefix := t.TempDir()
+	sinceFile := "gs://sinceBucket/sinceFile"
+	since := "2006-01-02T15:04:05.000-07:00"
+
+	// Setup BCDA test servers:
+
+	// A seperate resource server is needed during testing, so that we can send
+	// the jobsEndpoint response in the bcdaServer that includes a URL for the
+	// bcdaResourceServer in it.
+	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(file1Data)
+	}))
+	defer bcdaResourceServer.Close()
+
+	jobStatusURL := ""
+	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/auth/token":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"access_token": "token"}`))
+		case exportEndpoint:
+			w.Header()["Content-Location"] = []string{jobStatusURL}
+			w.WriteHeader(http.StatusAccepted)
+		case jobStatusURLSuffix:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer bcdaServer.Close()
+
+	jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
+
+	requestsSince := false
+	uploadsNewSince := false
+	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+
+		requestSinceURL := "/sinceBucket/sinceFile"
+		uploadSinceURL := "/upload/storage/v1/b/sinceBucket/o"
+
+		switch req.URL.Path {
+		case requestSinceURL:
+			requestsSince = true
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(since))
+		case uploadSinceURL:
+			uploadsNewSince = true
+			data, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Errorf("gcs server error reading body.")
+			}
+			if !bytes.Contains(data, []byte(serverTransactionTime)) {
+				t.Errorf(
+					"gcs server unexpected new since data; got: %s, want: %s", data, serverTransactionTime)
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{}"))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+
+	}))
+
+	// Set mainWrapperConfig for this test case. In practice, values are
+	// populated in mainWrapperConfig from flags. Setting the config struct
+	// instead of the flags in tests enables parallelization with significant
+	// performance improvement. A seperate test below tests that setting flags
+	// properly populates mainWrapperConfig.
+	cfg := mainWrapperConfig{
+		gcsEndpoint:   gcsServer.URL,
+		clientID:      "id",
+		clientSecret:  "secret",
+		outputPrefix:  outputPrefix,
+		bcdaServerURL: bcdaServer.URL,
+		rectify:       true,
+		useV2:         true,
+		sinceFile:     sinceFile,
+	}
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != nil {
+		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
+
+	if !requestsSince {
+		t.Error("Expected bcda_fetch to request since file from GCS. But it was not requested.")
+	}
+	if !uploadsNewSince {
+		t.Error("Expected bcda_fetch to upload new since file to GCS. But it was not uploaded.")
+	}
+
+	// Check that files were also written to disk under outputPrefix
+	fullPath := outputPrefix + "_Patient_0.ndjson"
+	r, err := os.Open(fullPath)
+	if err != nil {
+		t.Errorf("unable to open file %s: %s", fullPath, err)
+	}
+	defer r.Close()
+	gotData, err := io.ReadAll(r)
+	if err != nil {
+		t.Errorf("error reading file %s: %v", fullPath, err)
+	}
+	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
+		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+	}
+
+}
+
 func TestBuildMainWrapperConfig(t *testing.T) {
 	// Set every flag, and see that it is built into mainWrapper correctly.
 	defer SaveFlags().Restore()

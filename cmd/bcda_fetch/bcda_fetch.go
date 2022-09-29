@@ -28,6 +28,7 @@ import (
 
 	"flag"
 	log "github.com/golang/glog"
+	"cloud.google.com/go/storage"
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
@@ -66,7 +67,7 @@ var (
 	fhirAuthScopes              = flag.String("fhir_auth_scopes", "", "A comma seperated list of auth scopes that should be requested when getting an auth token.")
 
 	since                = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
-	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data.")
+	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data. If the file is of the form `gs://<GCS Bucket Name>/<Since File Name>` it will attempt to write the since file to the GCS bucket and file specified.")
 	noFailOnUploadErrors = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
 	bcdaJobID            = flag.String("bcda_job_id", "", "DEPRECATED in favor of bcda_job_url.")
 	bcdaJobURL           = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
@@ -154,7 +155,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return fmt.Errorf("Error authenticating with API: %v", err)
 	}
 
-	parsedSince, err := getSince(cfg.since, cfg.sinceFile)
+	parsedSince, err := getSince(cfg.since, cfg.sinceFile, cfg.gcsEndpoint)
 	if err != nil {
 		return err
 	}
@@ -259,12 +260,31 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	// Write out since file time. This should only be written if there are no
 	// errors during the fetch process.
 	if cfg.sinceFile != "" {
-		f, err := os.OpenFile(cfg.sinceFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return err
+		// Write since file to GCS if needed.
+		if strings.HasPrefix(cfg.sinceFile, "gs://") {
+			bucketName, filePath := getBucketAndFilePathFromSince(cfg.sinceFile)
+			gcsClient, err := gcs.NewClient(bucketName, cfg.gcsEndpoint)
+			if err != nil {
+				return err
+			}
+			sinceFileWriter := gcsClient.GetFileWriter(filePath)
+			sinceFileWriter.Write([]byte(fhir.ToFHIRInstant(jobStatus.TransactionTime)))
+			if err = sinceFileWriter.Close(); err != nil {
+				return err
+			}
+		} else {
+			f, err := os.OpenFile(cfg.sinceFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := f.Close(); err != nil {
+					log.Errorf("error when closing the file writer: %v", err)
+				}
+			}()
+
+			f.Write([]byte(fhir.ToFHIRInstant(jobStatus.TransactionTime) + "\n"))
 		}
-		defer f.Close()
-		f.Write([]byte(fhir.ToFHIRInstant(jobStatus.TransactionTime) + "\n"))
 	}
 
 	log.Info("bcda_fetch complete.")
@@ -391,14 +411,48 @@ func getFilesWriter(filename string, cfg mainWrapperConfig, since time.Time) io.
 			log.Exitf("unable to create gcs client")
 		}
 
-		gcsWriter := gcsClient.GetFileWriter(filename, since)
+		gcsWriter := gcsClient.GetFHIRFileWriter(filename, since)
 		multiFilesWriter.Add(gcsWriter)
 	}
 
 	return multiFilesWriter
 }
 
-func getSince(since, sinceFile string) (time.Time, error) {
+func getBucketAndFilePathFromSince(sinceFile string) (bucketName, filePath string) {
+	rawFilePath := strings.TrimPrefix(sinceFile, "gs://")
+	splitPaths := strings.SplitN(rawFilePath, "/", 2)
+	bucketName, filePath = splitPaths[0], splitPaths[1]
+	return
+}
+
+func getSinceFromGCS(sinceFile, gcsEndpoint string) (time.Time, error) {
+	bucketName, remainingPath := getBucketAndFilePathFromSince(sinceFile)
+	gcsClient, err := gcs.NewClient(bucketName, gcsEndpoint)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("Error getting GCS client: (%s)", err)
+	}
+	reader, err := gcsClient.GetFileReader(context.Background(), remainingPath)
+	if err == storage.ErrObjectNotExist {
+		// If that GCS file has not been created, assume that this is the first time it has been
+		// called and return an empty time to fetch all data.
+		return time.Time{}, nil
+	} else if err != nil {
+		return time.Time{}, fmt.Errorf("Error getting GCS reader: (%s)", err)
+	}
+
+	b, err := io.ReadAll(reader)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("Error reading GCS reader: (%s)", err)
+	}
+	parsedSince, err := fhir.ParseFHIRInstant(string(b))
+	if err != nil {
+		return parsedSince, fmt.Errorf("Error parsing since file from GCS (%s)", err)
+	}
+	return parsedSince, nil
+
+}
+
+func getSince(since, sinceFile, gcsEndpoint string) (time.Time, error) {
 	parsedSince := time.Time{}
 	if since != "" && sinceFile != "" {
 		return parsedSince, errors.New("only one of since or since_file flags may be set (cannot set both)")
@@ -413,6 +467,11 @@ func getSince(since, sinceFile string) (time.Time, error) {
 	}
 
 	if sinceFile != "" {
+
+		if strings.HasPrefix(sinceFile, "gs://") {
+			return getSinceFromGCS(sinceFile, gcsEndpoint)
+		}
+
 		if info, err := os.Stat(sinceFile); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
 			// There is no since information, since this is the first time fetch is being
 			// called on a new file or an empty file--so we return an empty time to fetch

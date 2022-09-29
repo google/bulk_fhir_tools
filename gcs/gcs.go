@@ -63,21 +63,28 @@ func NewClient(bucketName, endpointURL string) (Client, error) {
 	return gcsClient, err
 }
 
-// GetFileWriter returns a write closer that allows the user to write to a file named `fileName` in
-// the pre defined GCS bucket in a folder called `since`.
+// GetFHIRFileWriter returns a write closer that allows the user to write to a file named `fileName`
+// in the pre defined GCS bucket in a folder called `since`.
 // Closing the write closer will send the written data to GCS.
-func (gcsClient Client) GetFileWriter(fileName string, since time.Time) io.WriteCloser {
-	bkt := gcsClient.Bucket(gcsClient.bucketName)
-
+func (gcsClient Client) GetFHIRFileWriter(fileName string, since time.Time) io.WriteCloser {
 	// Use the `since` date as the folder where the resource will be written to.
 	objName := fmt.Sprintf("%s/%s", fhir.ToFHIRInstant(since), fileName)
-	obj := bkt.Object(objName)
-	writeCloser := obj.NewWriter(context.Background())
-	return writeCloser
+	return gcsClient.GetFileWriter(objName)
 }
 
-// GetFileReader returns a reader for a file in GCS named `fileName`. The file must exist in the
-// GCS location that the gcsClient points to.
+// GetFileWriter returns a write closer that allows the user to write to a file named `fileName` in
+// the pre defined GCS bucket.
+// Closing the write closer will send the written data to GCS.
+func (gcsClient Client) GetFileWriter(fileName string) io.WriteCloser {
+	bkt := gcsClient.Bucket(gcsClient.bucketName)
+	obj := bkt.Object(fileName)
+	return obj.NewWriter(context.Background())
+}
+
+// GetFileReader returns a reader for a file in GCS named `fileName`.
+// ErrObjectNotExist will be returned if the object is not found.
+//
+// The caller must call Close on the returned Reader when done reading.
 func (gcsClient Client) GetFileReader(ctx context.Context, fileName string) (io.ReadCloser, error) {
 	if ctx == nil {
 		ctx = context.Background()
