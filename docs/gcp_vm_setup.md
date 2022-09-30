@@ -45,5 +45,5 @@ account to have the ability to upload to FHIR store.
 5.  Build `bcda_fetch`:
 
     ```sh
-    go build cmd/bcda_fetch/bcda_fetch.go
+    go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go
     ```
