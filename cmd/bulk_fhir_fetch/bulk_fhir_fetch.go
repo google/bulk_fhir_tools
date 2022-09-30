@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// fetch is an example program that uses the bcda API client library to retrieve
-// resources from the BCDA API.
+// fetch is an example program that uses the bulkfhir API client library to retrieve
+// resources from a bulk FHIR API like BCDA.
 package main
 
 import (
@@ -39,7 +39,7 @@ import (
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
-// to the bcda_fetch program.
+// to the bulk_fhir_fetch program.
 var (
 	clientID     = flag.String("client_id", "", "BCDA API client ID (required)")
 	clientSecret = flag.String("client_secret", "", "BCDA API client secret (required)")
@@ -70,7 +70,7 @@ var (
 	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data. If the file is of the form `gs://<GCS Bucket Name>/<Since File Name>` it will attempt to write the since file to the GCS bucket and file specified.")
 	noFailOnUploadErrors = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
 	bcdaJobID            = flag.String("bcda_job_id", "", "DEPRECATED in favor of bcda_job_url.")
-	bcdaJobURL           = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bcda_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
+	bcdaJobURL           = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bulk_fhir_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
 )
 
 var (
@@ -287,7 +287,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 	}
 
-	log.Info("bcda_fetch complete.")
+	log.Info("bulk_fhir_fetch complete.")
 	return nil
 }
 

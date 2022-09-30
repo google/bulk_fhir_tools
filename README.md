@@ -29,10 +29,11 @@ to follow your organization's policies with respect to PHI.__
 
 ## Overview
 <!---TODO(b/199179306): add links to code paths below.--->
-* `cmd/bcda_fetch/`: A configurable program for fetching FHIR data from
-  BCDA, and optionally saving to disk or sending to your FHIR Store. The tool
+* `cmd/bulk_fhir_fetch/`: A configurable program for fetching FHIR data from a
+  bulk fhir source (like BCDA), and optionally saving to disk or sending to your
+  FHIR Store. The tool
   is highly configurable via flags, and can support pulling incremental data
-  only, among other features. See "bcda_fetch CLI Usage" for details on how
+  only, among other features. See "bulk_fhir_fetch CLI Usage" for details on how
   to use this program.
 * `bulkfhir/`: A generic client package for interacting with bulk FHIR APIs.
 * `bcda/`: A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
@@ -41,9 +42,9 @@ to follow your organization's policies with respect to PHI.__
 * `fhir/`: A go package with some helpful utilities for working with FHIR claims
   data.
 
-## bcda_fetch CLI Usage
+## bulk_fhir_fetch CLI Usage
 
-The example `bcda_fetch` command line program can be used to fetch claims data
+The example `bulk_fhir_fetch` command line program can be used to fetch claims data
 from the BCDA to save to disk or validate and upload to a [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir). This program can also be configured to run as a periodic cron job where it only fetches new
 data since the program last successfully ran.
 
@@ -53,20 +54,20 @@ To build the program from source run the following from the root of the
 repository (note you must have [Go](https://go.dev/dl/) installed):
 
 ```sh
-go build cmd/bcda_fetch/bcda_fetch.go
+go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go
 ```
 
-This will build the `bcda_fetch` binary and write it out in your current
-directory. Run `./bcda_fetch --help` for more information, or see the section
-below for `bcda_fetch` usage.
+This will build the `bulk_fhir_fetch` binary and write it out in your current
+directory. Run `./bulk_fhir_fetch --help` for more information, or see the section
+below for `bulk_fhir_fetch` usage.
 
 To use this tool on a GCP VM, you can follow these
-[instructions](docs/gcp_vm_setup.md) to get the environment and bcda_fetch tool
+[instructions](docs/gcp_vm_setup.md) to get the environment and bulk_fhir_fetch tool
 setup.
 
 ### Common Usage
 
-You can check all of the various flag details by running `./bcda_fetch --help`.
+You can check all of the various flag details by running `./bulk_fhir_fetch --help`.
 This section will detail common usage patterns for the command line tool.
 
 If you want to try this out __without__ using your real credentials,
@@ -80,7 +81,7 @@ to follow your organization's policies with respect to PHI.__
 * __Fetch all BCDA data for your ACO to local NDJSON files:__
 
   ```sh
-  ./bcda_fetch \
+  ./bulk_fhir_fetch \
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
@@ -136,7 +137,7 @@ Note, do not run concurrent instances of fetch that use the same since file.
 * __Upload claims to a GCP FHIR Store:__
 
   ```sh
-  ./bcda_fetch \
+  ./bulk_fhir_fetch \
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
@@ -155,7 +156,7 @@ Note, do not run concurrent instances of fetch that use the same since file.
   `-output_prefix` is not specified, no NDJSON output will be written to local
   disk and the only output will be to FHIR store.
 
-To set up the `bcda_fetch` program to run periodically, take a look at the
+To set up the `bulk_fhir_fetch` program to run periodically, take a look at the
 [documentation](docs/periodic_gcp_ingestion.md).
 
 

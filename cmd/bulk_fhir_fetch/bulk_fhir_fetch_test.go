@@ -1049,7 +1049,7 @@ func TestMainWrapper_WithDeprecatedJobIDFlag(t *testing.T) {
 
 func TestMainWrapper_BatchUploadSize(t *testing.T) {
 	// This test more comprehensively checks setting different batch sizes in
-	// bcda_fetch.
+	// bulk_fhir_fetch.
 	cases := []struct {
 		name            string
 		apiVersion      bcda.Version
