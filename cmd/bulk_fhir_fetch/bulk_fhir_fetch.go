@@ -150,11 +150,6 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 	}()
 
-	_, err = cl.Authenticate()
-	if err != nil {
-		return fmt.Errorf("Error authenticating with API: %v", err)
-	}
-
 	parsedSince, err := getSince(cfg.since, cfg.sinceFile, cfg.gcsEndpoint)
 	if err != nil {
 		return err
@@ -172,7 +167,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	var monitorResult *bulkfhir.MonitorResult
 	for monitorResult = range cl.MonitorJobStatus(jobURL, jobStatusPeriod, jobStatusTimeout) {
 		if monitorResult.Error != nil {
-			log.Errorf("error while checking the jobStatus: %v", err)
+			log.Errorf("error while checking the jobStatus: %v", monitorResult.Error)
 		}
 		if !monitorResult.Status.IsComplete {
 			log.Infof("BCDA Export job pending, progress: %d\n", monitorResult.Status.PercentComplete)
@@ -299,7 +294,7 @@ func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.
 	for (errors.Is(err, bulkfhir.ErrorUnauthorized) || errors.Is(err, bulkfhir.ErrorRetryableHTTPStatus)) && numRetries < 5 {
 		time.Sleep(2 * time.Second)
 		log.Infof("Got retryable error from BCDA. Re-authenticating and trying again.")
-		if _, err := cl.Authenticate(); err != nil {
+		if err := cl.Authenticate(); err != nil {
 			return nil, fmt.Errorf("Error authenticating with API: %w", err)
 		}
 		r, err = cl.GetData(url)
@@ -508,7 +503,11 @@ func getSince(since, sinceFile, gcsEndpoint string) (time.Time, error) {
 // traiditonal BCDA client. Eventually BCDA specific logic will be deprecated.
 func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
 	if cfg.useGeneralizedBulkImport {
-		return bulkfhir.NewClient(cfg.baseServerURL, cfg.authURL, cfg.clientID, cfg.clientSecret, cfg.fhirAuthScopes)
+		authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(cfg.clientID, cfg.clientSecret, cfg.authURL, &bulkfhir.HTTPBasicOAuthOptions{Scopes: cfg.fhirAuthScopes})
+		if err != nil {
+			return nil, err
+		}
+		return bulkfhir.NewClient(cfg.baseServerURL, authenticator)
 	}
 	apiVersion := bcda.V1
 	if cfg.useV2 {

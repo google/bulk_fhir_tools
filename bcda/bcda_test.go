@@ -71,7 +71,7 @@ func TestNewClient(t *testing.T) {
 					correctAuthCalled.called = true
 					correctAuthCalled.Unlock()
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("{\"access_token\": \"token\"}"))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case wantBulkDataExportEndpoint:
 					correctBulkDataExportCalled.Lock()
 					correctBulkDataExportCalled.called = true
@@ -97,11 +97,6 @@ func TestNewClient(t *testing.T) {
 			}
 			if tc.wantError != nil {
 				return
-			}
-
-			_, err = cl.Authenticate()
-			if err != nil {
-				t.Errorf("got unexpected error from Authenticate: %v", err)
 			}
 
 			_, err = cl.StartBulkDataExport([]bulkfhir.ResourceType{}, time.Time{}, bulkfhir.ExportGroupAll)

@@ -447,7 +447,7 @@ func TestMainWrapper(t *testing.T) {
 				switch req.URL.Path {
 				case "/auth/token":
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token"}`))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 					exportEndpointCalled.Increment()
 					if tc.since != "" || tc.sinceFileLatestTimestamp != "" {
@@ -700,7 +700,7 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 				switch req.URL.Path {
 				case "/auth/token":
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token"}`))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 					// Check that since is empty
 					if got := len(req.URL.Query()["_since"]); got != 0 {
@@ -821,7 +821,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 				case "/auth/token":
 					authCalled.Increment()
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token"}`))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 
 					w.Header()["Content-Location"] = []string{jobStatusURL}
@@ -982,7 +982,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				case "/auth/token":
 					authCalled.Increment()
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token"}`))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 
 					w.Header()["Content-Location"] = []string{jobStatusURL}
@@ -1112,7 +1112,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				switch req.URL.Path {
 				case "/auth/token":
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token"}`))
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 					// Check that since is empty
 					if got := len(req.URL.Query()["_since"]); got != 0 {
@@ -1212,7 +1212,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		switch req.URL.Path {
 		case "/auth/token":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token": "token"}`))
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			w.Header()["Content-Location"] = []string{jobStatusURL}
 			w.WriteHeader(http.StatusAccepted)
@@ -1384,7 +1384,7 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 				t.Errorf("Authenticate got invalid scopes. diff: %s", diff)
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token": "token"}`))
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			// Check that since is empty
 			if got := len(req.URL.Query()["_since"]); got != 0 {
@@ -1478,7 +1478,7 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		switch req.URL.Path {
 		case "/auth/token":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token": "token"}`))
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			w.Header()["Content-Location"] = []string{jobStatusURL}
 			w.WriteHeader(http.StatusAccepted)

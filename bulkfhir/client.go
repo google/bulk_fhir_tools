@@ -18,7 +18,6 @@
 package bulkfhir
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,8 +39,9 @@ var (
 	// to parse the progress in the server response.
 	ErrorUnableToParseProgress = errors.New("unable to parse progress out of X-Progress header")
 	// ErrorUnauthorized indicates that the server considers this client
-	// unauthorized (it is possible the token has expired). The caller of the
-	// library should consider calling Authenticate() and then retrying the
+	// unauthorized. While authenticators should renew credentials automatically
+	// if required, time-of-check-to-time-of-use may mean that this error is still
+	// the result of expired credentials. Clients should consider retrying the
 	// operation if needed.
 	ErrorUnauthorized = errors.New("server indicates this client is unauthorized")
 	// ErrorTimeout indicates the operation timed out.
@@ -122,33 +122,21 @@ func ResourceTypeFromAPI(r string) (ResourceType, error) {
 	return ResourceType(-1), errors.New("not a valid ResourceType")
 }
 
-// Client represents a BCDA API client at some API version.
+// Client represents a Bulk FHIR API client at some API version.
 type Client struct {
 	baseURL string
 
-	fullAuthURL string
-
-	clientID     string
-	clientSecret string
-	authScopes   []string
-
-	token      string
-	httpClient *http.Client
+	httpClient    *http.Client
+	authenticator Authenticator
 }
 
 // NewClient creates and returns a new bulk fhir API Client for the input
-// baseURL. A full authentication endpoint to get a token must also be provided
-// (this endpoint must include the baseURL component as well). authScopes
-// is a set of scopes to be used alongside authentication requests (this can
-// be empty if not needed for your FHIR server).
-func NewClient(baseURL, fullAuthURL, clientID, clientSecret string, authScopes []string) (*Client, error) {
+// baseURL, using the given authenticator.
+func NewClient(baseURL string, authenticator Authenticator) (*Client, error) {
 	return &Client{
-		baseURL:      baseURL,
-		fullAuthURL:  fullAuthURL,
-		httpClient:   &http.Client{},
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		authScopes:   authScopes,
+		baseURL:       baseURL,
+		httpClient:    &http.Client{},
+		authenticator: authenticator,
 	}, nil
 }
 
@@ -168,8 +156,6 @@ const (
 	preferHeader      = "Prefer"
 	preferHeaderAsync = "respond-async"
 
-	authorizationHeader = "Authorization"
-
 	contentLocation = "Content-Location"
 
 	xProgress = "X-Progress"
@@ -183,49 +169,24 @@ const (
 // progressREGEX matches strings like "(50%)" and captures the percentile number (50).
 var progressREGEX = regexp.MustCompile(`\(([0-9]+?)%\)`)
 
-// Authenticate authenticates with the bulk fhir API to fetch a JSON Web Token to use for this
-// session. The token is returned, but also stored in the client to automatically attach to future
-// API requests where needed.
-//
-// Authenticate must be called before calling other methods in the Client, otherwise the methods
-// will return an error that indicates Authenticate has not yet been called.
-func (c *Client) Authenticate() (token string, err error) {
-	url := c.fullAuthURL
+// Authenticate calls through to the Authenticator the client was built with to
+// unconditionally perform credential exchange.
+func (c *Client) Authenticate() error {
+	return c.authenticator.Authenticate(c.httpClient)
+}
 
-	body := buildAuthBody(c.authScopes)
-	req, err := http.NewRequest(http.MethodPost, url, body)
-	if err != nil {
-		return "", err
+// AuthenticateIfNecessary calls through to the Authenticator the client was
+// built with to perform credential exchange if necessary.
+func (c *Client) AuthenticateIfNecessary() error {
+	return c.authenticator.AuthenticateIfNecessary(c.httpClient)
+}
+
+// doHTTP wraps a call to c.httpClient.Do to apply authentication.
+func (c *Client) doHTTP(req *http.Request) (*http.Response, error) {
+	if err := c.authenticator.AddAuthenticationToRequest(c.httpClient, req); err != nil {
+		return nil, err
 	}
-
-	req.SetBasicAuth(c.clientID, c.clientSecret)
-	req.Header.Add(acceptHeader, acceptHeaderJSON)
-	if body != nil {
-		req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("unexpected status code %v, but also had an error parsing error body: %v %w", resp.StatusCode, err, ErrorUnexpectedStatusCode)
-		}
-		return "", fmt.Errorf("unexpected status code %v with error body: %s %w", resp.StatusCode, respBody, ErrorUnexpectedStatusCode)
-	}
-
-	var tr tokenResponse
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&tr); err != nil {
-		return "", err
-	}
-
-	c.token = tr.Token
-
-	return tr.Token, nil
+	return c.httpClient.Do(req)
 }
 
 // StartBulkDataExport starts a job via the bulk fhir API to begin exporting the
@@ -234,10 +195,6 @@ func (c *Client) Authenticate() (token string, err error) {
 // Location header). The variable bulkfhir.ExportGroupAll can be provided
 // for the group parameter if you wish to retrieve all FHIR resources.
 func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time, groupID string) (jobStatusURL string, err error) {
-	if len(c.token) == 0 {
-		return "", ErrorUnauthorized
-	}
-
 	u, err := url.Parse(c.baseURL + fmt.Sprintf(bulkDataExportEndpointFmtStr, groupID))
 	if err != nil {
 		return "", err
@@ -264,9 +221,8 @@ func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time, grou
 
 	req.Header.Add(acceptHeader, acceptHeaderFHIRJSON)
 	req.Header.Add(preferHeader, preferHeaderAsync)
-	req.Header.Add(authorizationHeader, fmt.Sprintf("Bearer %s", c.token))
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doHTTP(req)
 	if err != nil {
 		return "", err
 	}
@@ -301,19 +257,14 @@ type JobStatus struct {
 // JobStatus retrieves the current JobStatus via the bulk fhir API for the
 // provided job status URL.
 func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
-	if len(c.token) == 0 {
-		return JobStatus{}, ErrorUnauthorized
-	}
-
 	req, err := http.NewRequest(http.MethodGet, jobStatusURL, nil)
 	if err != nil {
 		return JobStatus{}, err
 	}
-	req.Header.Add(authorizationHeader, fmt.Sprintf("Bearer %s", c.token))
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doHTTP(req)
 	if err != nil {
-		return JobStatus{}, nil
+		return JobStatus{}, err
 	}
 
 	switch resp.StatusCode {
@@ -391,7 +342,7 @@ func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time
 			jobStatus, err = c.JobStatus(jobStatusURL)
 			if err != nil {
 				if errors.Is(err, ErrorUnauthorized) {
-					_, err = c.Authenticate()
+					err = c.Authenticate()
 					if err != nil {
 						out <- &MonitorResult{Error: err}
 					}
@@ -417,17 +368,12 @@ func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time
 // GetData retrieves the NDJSON data result from the provided BCDA result url.
 // The caller must close the dataStream io.ReadCloser when finished.
 func (c *Client) GetData(bcdaURL string) (dataStream io.ReadCloser, err error) {
-	if len(c.token) == 0 {
-		return nil, ErrorUnauthorized
-	}
-
 	req, err := http.NewRequest(http.MethodGet, bcdaURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add(authorizationHeader, fmt.Sprintf("Bearer %s", c.token))
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doHTTP(req)
 	if err != nil {
 		return nil, err
 	}
@@ -449,11 +395,6 @@ func (c *Client) GetData(bcdaURL string) (dataStream io.ReadCloser, err error) {
 
 func retryableNonOKError(code int) error {
 	return fmt.Errorf("unexpected non-OK http status code: %d %w", code, ErrorRetryableHTTPStatus)
-}
-
-// tokenResponse represents the BCDA api response from the GetToken endpoint.
-type tokenResponse struct {
-	Token string `json:"access_token"`
 }
 
 // jobStatusResponse represents the BCDA api response from the JobStatus endpoint.
@@ -488,27 +429,4 @@ func resourceTypesToQueryValue(types []ResourceType) (string, error) {
 		b.WriteString(a)
 	}
 	return b.String(), nil
-}
-
-// buildAuthBody serializes the provided slice of scopes for use in
-// Authenticate's HTTP body using the expected urlencoded scheme, and adds in
-// the default grant_type.
-func buildAuthBody(scopes []string) io.Reader {
-	if len(scopes) == 0 {
-		return nil
-	}
-
-	s := strings.Builder{}
-	// Add all scopes with a trailing space to the builder, except the last scope
-	// for which a trailing space is not included.
-	for _, scope := range scopes[0 : len(scopes)-1] {
-		s.WriteString(scope + " ")
-	}
-	s.WriteString(scopes[len(scopes)-1]) // write last element with trailing space.
-
-	v := url.Values{}
-	v.Add("scope", s.String())
-	v.Add("grant_type", "client_credentials")
-
-	return bytes.NewBufferString(v.Encode())
 }

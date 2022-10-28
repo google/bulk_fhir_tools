@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,155 +28,18 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestClient_Authenticate(t *testing.T) {
-	clientID := "clientID"
-	clientSecret := "clientSecret"
+type testAuthenticator struct{}
 
-	expectedPath := "/auth/token"
-	expectedToken := "123"
-	expectedAcceptValue := "application/json"
-	expectedContentTypeValue := "application/x-www-form-urlencoded"
-	expectedGrantTypeValue := "client_credentials"
-
-	cases := []struct {
-		name   string
-		scopes []string
-	}{
-		{
-			name:   "NoScopes",
-			scopes: []string{},
-		},
-		{
-			name:   "OneScope",
-			scopes: []string{"a"},
-		},
-		{
-			name:   "MultiScopes",
-			scopes: []string{"a", "b", "c"},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if req.URL.String() != expectedPath {
-					t.Errorf("Authenticate(%s, %s) made request with unexpected path. got: %v, want: %v", clientID, clientSecret, req.URL.String(), expectedPath)
-				}
-
-				id, sec, ok := req.BasicAuth()
-				if !ok {
-					t.Errorf("Authenticate(%s, %s) basic auth not OK.", clientID, clientSecret)
-				}
-				if id != clientID {
-					t.Errorf("Authenticate(%s, %s) sent unexpected clientID, got %s, want: %s", clientID, clientSecret, id, clientID)
-				}
-				if sec != clientSecret {
-					t.Errorf("Authenticate(%s, %s) sent unexpected clientSecret, got %s, want: %s", clientID, clientSecret, sec, clientSecret)
-				}
-
-				if len(tc.scopes) > 0 {
-					err := req.ParseForm()
-					if err != nil {
-						t.Errorf("Authenticate(%s, %s) sent a body that could not be parsed as a form: %s", clientID, clientSecret, err)
-					}
-
-					if got := len(req.Form["scope"]); got != 1 {
-						t.Errorf("Authenticate(%s, %s) sent invalid number of scope values. got: %v, want: %v", clientID, clientSecret, got, 1)
-					}
-					splitScopes := strings.Split(req.Form["scope"][0], " ")
-					if diff := cmp.Diff(splitScopes, tc.scopes, cmpopts.SortSlices(func(a, b string) bool { return a > b })); diff != "" {
-						t.Errorf("Authenticate(%s, %s) sent invalid scopes. diff: %s", clientID, clientSecret, diff)
-					}
-					if got := len(req.Form["grant_type"]); got != 1 {
-						t.Errorf("Authenticate(%s, %s) sent invalid number of grant_type values. got: %v, want: %v", clientID, clientSecret, got, 1)
-					}
-					if got := req.Form["grant_type"][0]; got != expectedGrantTypeValue {
-						t.Errorf("Authenticate(%s, %s) sent invalid grant_type value. got: %v, want: %v", clientID, clientSecret, got, expectedGrantTypeValue)
-					}
-
-					contentTypeVals, ok := req.Header["Content-Type"]
-					if !ok {
-						t.Errorf("Authenticate(%s, %s) did not send Content-Type header", clientID, clientSecret)
-					}
-					if len(contentTypeVals) != 1 {
-						t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected number of values. got: %v, want: %v", clientID, clientSecret, len(contentTypeVals), 1)
-					}
-					if got := contentTypeVals[0]; got != expectedContentTypeValue {
-						t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected value. got: %v, want: %v", clientID, clientSecret, got, expectedContentTypeValue)
-					}
-				}
-
-				accValues, ok := req.Header["Accept"]
-				if !ok {
-					t.Errorf("Authenticate(%s, %s) did not send Accept header", clientID, clientSecret)
-				}
-
-				if len(accValues) != 1 {
-					t.Errorf("Authenticate(%s, %s) sent Content-Type header with unexpected number of values. got: %v, want: %v", clientID, clientSecret, len(accValues), 1)
-				}
-
-				if got := accValues[0]; got != expectedAcceptValue {
-					t.Errorf("Authenticate(%s, %s) did not send expected Accept header. got: %v, want: %v", clientID, clientSecret, got, expectedAcceptValue)
-				}
-
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(fmt.Sprintf("{\"access_token\": \"%s\"}", expectedToken)))
-			}))
-			defer server.Close()
-			authURL := server.URL + "/auth/token"
-
-			cl, err := NewClient(server.URL, authURL, clientID, clientSecret, tc.scopes)
-			if err != nil {
-				t.Fatalf("NewClient(%v, %v) error: %v", server.URL, authURL, err)
-			}
-
-			token, err := cl.Authenticate()
-			if err != nil {
-				t.Errorf("Authenticate(%s, %s) returned unexpected error: %v", clientID, clientSecret, err)
-			}
-			if token != expectedToken {
-				t.Errorf("Authenticate(%s, %s) returned unexpected token. got %v, want: %v", clientID, clientSecret, token, expectedToken)
-			}
-		})
-	}
-}
-
-func TestClient_Authenticate_WithError(t *testing.T) {
-	wantErrBody := []byte(`an error`)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(wantErrBody)
-	}))
-	defer server.Close()
-
-	authURL := server.URL + "/auth/token"
-	clientID := "id"
-	clientSecret := "secret"
-	cl, err := NewClient(server.URL, authURL, clientID, clientSecret, []string{})
-	if err != nil {
-		t.Fatalf("NewClient(%v, %v) error: %v", server.URL, authURL, err)
-	}
-	token, err := cl.Authenticate()
-	if !errors.Is(err, ErrorUnexpectedStatusCode) {
-		t.Errorf("Authenticate(%s, %s) returned unexpected error. got: %v, want: %v", clientID, clientSecret, err, ErrorUnexpectedStatusCode)
-	}
-	if token != "" {
-		t.Errorf("Authenticate(%s, %s) unexpected token. got: %v, want: %v", clientID, clientSecret, token, "")
-	}
+func (testAuthenticator) Authenticate(hc *http.Client) error            { return nil }
+func (testAuthenticator) AuthenticateIfNecessary(hc *http.Client) error { return nil }
+func (testAuthenticator) AddAuthenticationToRequest(hc *http.Client, req *http.Request) error {
+	return nil
 }
 
 func TestClient_StartBulkDataExport(t *testing.T) {
-	t.Run("without token", func(t *testing.T) {
-		c := Client{httpClient: &http.Client{}}
-		_, err := c.StartBulkDataExport([]ResourceType{}, time.Time{}, ExportGroupAll)
-		if err != ErrorUnauthorized {
-			t.Errorf("StartBulkDataExport returned incorrect error. got: %v, want: %v", err, ErrorUnauthorized)
-		}
-	})
-
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: server.URL}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
 		if err != ErrorUnauthorized {
 			t.Errorf("StartBulkDataExport unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
@@ -185,7 +47,6 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 	})
 
 	t.Run("full test with since and resource types", func(t *testing.T) {
-		token := "123"
 		resourceTypes := []ResourceType{Patient, ExplanationOfBenefit, Coverage}
 		since := time.Date(2013, 12, 9, 11, 0, 0, 123000000, time.UTC)
 		group := "mygroup"
@@ -235,7 +96,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		}))
 		defer server.Close()
 
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		jobURL, err := cl.StartBulkDataExport(resourceTypes, since, group)
 		if err != nil {
 			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", resourceTypes, since, err)
@@ -270,7 +131,6 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				token := "123"
 				expectedJobStatusURL := "/some/url/job/1"
 				// Expected number of header values for _since and _type
 				expectedNumSince := 0
@@ -293,7 +153,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 				}))
 				defer server.Close()
 
-				cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+				cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 				jobURL, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since, ExportGroupAll)
 				if err != nil {
 					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", tc.resourceTypes, tc.since, err)
@@ -311,8 +171,7 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		}))
 		defer server.Close()
 
-		token := "123"
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
 		if !errors.Is(err, ErrorGreaterThanOneContentLocation) {
 			t.Errorf("StartBulkDataExport(%v, %v) unexpected underlying error got: %v want: %v", AllResourceTypes, time.Time{}, err, ErrorGreaterThanOneContentLocation)
@@ -321,17 +180,9 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 }
 
 func TestClient_GetJobStatus(t *testing.T) {
-	t.Run("without token", func(t *testing.T) {
-		c := Client{httpClient: &http.Client{}}
-		_, err := c.JobStatus("/some/url")
-		if err != ErrorUnauthorized {
-			t.Errorf("GetJobStatus returned incorrect error. got: %v, want: %v", err, ErrorUnauthorized)
-		}
-	})
-
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: server.URL}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.JobStatus(server.URL + "/some/url")
 		if err != ErrorUnauthorized {
 			t.Errorf("GetJobStatus returned unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
@@ -343,7 +194,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 60), fmt.Sprintf("(%d%%)", 160)}
 			w.WriteHeader(http.StatusAccepted)
 		}))
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.JobStatus(server.URL + "/some/url")
 		if !errors.Is(err, ErrorUnexpectedNumberOfXProgress) {
 			t.Errorf("JobStatus returned unexpected underlying error. got: %v, want: %v", err, ErrorUnexpectedNumberOfXProgress)
@@ -352,32 +203,19 @@ func TestClient_GetJobStatus(t *testing.T) {
 
 	t.Run("valid request", func(t *testing.T) {
 		jobID := "id"
-		token := "123"
 
 		expectedURLSuffix := "/jobs/20"
 		expectedProgress := 60
-		expectedAuth := fmt.Sprintf("Bearer %s", token)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.URL.Path != expectedURLSuffix {
 				t.Errorf("GetJobStatus made request with unexpected path. got: %v, want: %v", req.URL.String(), expectedURLSuffix)
-			}
-
-			authValues, ok := req.Header["Authorization"]
-			if !ok {
-				t.Errorf("GetJobStatus did not send Authorization header")
-			}
-			if got, want := len(authValues), 1; got != want {
-				t.Errorf("GetJobStatus sent incorrect number of Authorization header values, got: %d, want: %d", got, want)
-			}
-			if got, want := authValues[0], expectedAuth; got != want {
-				t.Errorf("GetJobStatus sent wrong Authorization header value, got: %s, want: %s", got, want)
 			}
 
 			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", expectedProgress)}
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		jobStatusURL := server.URL + expectedURLSuffix
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobID, err)
@@ -385,7 +223,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 	})
 
 	t.Run("job in progress", func(t *testing.T) {
-		token := "123"
 
 		expectedProgress := 60
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -393,7 +230,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		jobStatusURL := server.URL
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
@@ -407,7 +244,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 	})
 
 	t.Run("job completed", func(t *testing.T) {
-		token := "123"
 		transactionTime := "2020-09-17T17:53:11.476Z"
 		expectedTransactionTime := time.Date(2020, 9, 17, 17, 53, 11, 476000000, time.UTC)
 		expectedResourceType := "Patient"
@@ -418,7 +254,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}))
 		jobStatusURL := server.URL
 
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
@@ -457,7 +293,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}))
 		jobStatusURL := server.URL
 
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		jobStatus, err := cl.JobStatus(jobStatusURL)
 		if err != nil {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
@@ -477,7 +313,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 	})
 
 	t.Run("invalid progress", func(t *testing.T) {
-		token := "123"
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header()["X-Progress"] = []string{"invalid"}
@@ -485,7 +320,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}))
 		jobStatusURL := server.URL
 
-		cl := Client{token: token, baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.JobStatus(jobStatusURL)
 		if err != ErrorUnableToParseProgress {
 			t.Errorf("GetJobStatus(%v) returned unexpected error: got: %v, want: %v", err, jobStatusURL, ErrorUnableToParseProgress)
@@ -499,7 +334,7 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}))
 		jobStatusURL := server.URL
 
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.JobStatus(jobStatusURL)
 		if err == nil {
 			t.Errorf("GetJobStatus(%v) succeeded, want error", jobStatusURL)
@@ -508,17 +343,9 @@ func TestClient_GetJobStatus(t *testing.T) {
 }
 
 func TestClient_GetData(t *testing.T) {
-	t.Run("without token", func(t *testing.T) {
-		c := Client{httpClient: &http.Client{}}
-		_, err := c.GetData("url")
-		if err != ErrorUnauthorized {
-			t.Errorf("GetData returned incorrect error. got: %v, want: %v", err, ErrorUnauthorized)
-		}
-	})
-
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: server.URL}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		_, err := cl.GetData(server.URL + "/id")
 		if err != ErrorUnauthorized {
 			t.Errorf("GetData returned unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
@@ -529,7 +356,7 @@ func TestClient_GetData(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
-		c := Client{token: "123", httpClient: &http.Client{}}
+		c := Client{authenticator: testAuthenticator{}, httpClient: &http.Client{}}
 		_, err := c.GetData(server.URL)
 		if !errors.Is(err, ErrorUnexpectedStatusCode) {
 			t.Errorf("GetData(%v) returned incorrect underlying error. got: %v, want: %v", server.URL, err, ErrorUnexpectedStatusCode)
@@ -540,7 +367,7 @@ func TestClient_GetData(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
-		c := Client{token: "123", httpClient: &http.Client{}}
+		c := Client{authenticator: testAuthenticator{}, httpClient: &http.Client{}}
 		_, err := c.GetData(server.URL)
 		if !errors.Is(err, ErrorRetryableHTTPStatus) {
 			t.Errorf("GetData(%v) returned incorrect underlying error. got: %v, want: %v", server.URL, err, ErrorRetryableHTTPStatus)
@@ -548,30 +375,18 @@ func TestClient_GetData(t *testing.T) {
 	})
 
 	t.Run("valid GetData", func(t *testing.T) {
-		token := "123"
-		expectedAuth := fmt.Sprintf("Bearer %s", token)
 		expectedResponse := []byte("the response")
 		expectedPath := "/data"
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.URL.Path != expectedPath {
 				t.Errorf("GetData(%v) made request with unexpected path. got: %v, want: %v", req.URL.String(), req.URL.Path, expectedPath)
 			}
-			authValues, ok := req.Header["Authorization"]
-			if !ok {
-				t.Errorf("GetData(%v) did not send Authorization header", req.URL.String())
-			}
-			if got, want := len(authValues), 1; got != want {
-				t.Errorf("GetData(%v) sent incorrect number of Authorization header values, got: %d, want: %d", req.URL.String(), got, want)
-			}
-			if got, want := authValues[0], expectedAuth; got != want {
-				t.Errorf("GetData(%v) sent wrong Authorization header value, got: %s, want: %s", req.URL.String(), got, want)
-			}
 
 			w.WriteHeader(http.StatusOK)
 			w.Write(expectedResponse)
 		}))
 
-		cl := Client{baseURL: server.URL, token: token, httpClient: &http.Client{}}
+		cl := Client{baseURL: server.URL, authenticator: testAuthenticator{}, httpClient: &http.Client{}}
 		path := server.URL + expectedPath
 		r, err := cl.GetData(path)
 		if err != nil {
@@ -604,7 +419,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		jobStatusURL := server.URL
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 		results := make([]*MonitorResult, 0, 1)
 		for st := range cl.MonitorJobStatus(jobStatusURL, period, timeout) {
 			results = append(results, st)
@@ -677,7 +492,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 				}))
 				jobStatusURL := server.URL + jobStatusURLSuffix
 
-				cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}}
+				cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
 				results := make([]JobStatus, 0, 1)
 
 				for st := range cl.MonitorJobStatus(jobStatusURL, tc.period, tc.timeout) {
@@ -717,7 +532,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 				authCalled.called = true
 				authCalled.Unlock()
 				w.WriteHeader(200)
-				w.Write([]byte("{\"access_token\": \"token\"}"))
+				w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				return
 			}
 
@@ -741,8 +556,13 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 
 		wantJobStatuses := []JobStatus{completeJobStatus}
 
-		authURL := server.URL + "/auth/token"
-		cl := Client{token: "123", baseURL: server.URL, httpClient: &http.Client{}, fullAuthURL: authURL}
+		auth, err := NewHTTPBasicOAuthAuthenticator("username", "password", server.URL+"/auth/token", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth.token = "123"
+		auth.expiry = time.Now().Add(5 * time.Minute)
+		cl := Client{authenticator: auth, baseURL: server.URL, httpClient: &http.Client{}}
 		results := make([]JobStatus, 0, 1)
 
 		monitorPeriod := time.Millisecond

@@ -45,7 +45,12 @@ func NewClient(baseURL string, v Version, clientID, clientSecret string) (*bulkf
 		return nil, err
 	}
 
-	return bulkfhir.NewClient(getVersionedBaseURL(baseURL, v), getDefaultAuthURL(baseURL), clientID, clientSecret, []string{})
+	authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, getDefaultAuthURL(baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return bulkfhir.NewClient(getVersionedBaseURL(baseURL, v), authenticator)
 }
 
 func getVersionedBaseURL(baseURL string, v Version) string {
