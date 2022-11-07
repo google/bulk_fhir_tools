@@ -2,14 +2,19 @@ package bulkfhir
 
 import (
 	"bytes"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/golang-jwt/jwt"
 )
 
 // Used for testing.
@@ -77,7 +82,7 @@ func (bt *bearerToken) addHeader(req *http.Request) {
 	req.Header.Set(authorizationHeader, fmt.Sprintf("Bearer %s", bt.token))
 }
 
-// credentialExchanger is used by BearerTokenAuthenticator to exchange
+// credentialExchanger is used by bearerTokenAuthenticator to exchange
 // long-lived credentials for a short lived bearer token.
 type credentialExchanger interface {
 	authenticate(hc *http.Client) (*bearerToken, error)
@@ -148,8 +153,33 @@ func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthen
 	return bt
 }
 
+// doOAuthExchange sends a HTTP request which is expected to return a JSON
+// response matching tokenResponse.
+func doOAuthExchange(hc *http.Client, req *http.Request, defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiresIn bool) (*bearerToken, error) {
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected status code %v, but also had an error parsing error body: %v %w", resp.StatusCode, err, ErrorUnexpectedStatusCode)
+		}
+		return nil, fmt.Errorf("unexpected status code %v with error body: %s %w", resp.StatusCode, respBody, ErrorUnexpectedStatusCode)
+	}
+
+	var tr tokenResponse
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(&tr); err != nil {
+		return nil, err
+	}
+
+	return tr.toBearerToken(defaultExpiry, alwaysAuthenticateIfNoExpiresIn), nil
+}
+
 // httpBasicOAuthExchanger is an implementation of credentialExchanger for use
-// with BearerTokenAuthenticator which performs a 2-legged OAuth2 handshake
+// with bearerTokenAuthenticator which performs a 2-legged OAuth2 handshake
 // using HTTP Basic Authentication to obtain an access token, which is presented
 // as an "Authorization: Bearer {token}" header in all requests.
 //
@@ -190,26 +220,7 @@ func (hboe *httpBasicOAuthExchanger) authenticate(hc *http.Client) (*bearerToken
 	req.Header.Add(acceptHeader, acceptHeaderJSON)
 	req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
 
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("unexpected status code %v, but also had an error parsing error body: %v %w", resp.StatusCode, err, ErrorUnexpectedStatusCode)
-		}
-		return nil, fmt.Errorf("unexpected status code %v with error body: %s %w", resp.StatusCode, respBody, ErrorUnexpectedStatusCode)
-	}
-
-	var tr tokenResponse
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&tr); err != nil {
-		return nil, err
-	}
-
-	return tr.toBearerToken(hboe.defaultExpiry, hboe.alwaysAuthenticateIfNoExpiresIn), nil
+	return doOAuthExchange(hc, req, hboe.defaultExpiry, hboe.alwaysAuthenticateIfNoExpiresIn)
 }
 
 // HTTPBasicOAuthOptions contains optional parameters used by
@@ -258,6 +269,168 @@ func NewHTTPBasicOAuthAuthenticator(username, password, tokenURL string, opts *H
 		e.scopes = opts.Scopes
 		e.alwaysAuthenticateIfNoExpiresIn = opts.AlwaysAuthenticateIfNoExpiresIn
 		e.defaultExpiry = opts.DefaultExpiry
+	}
+
+	return &bearerTokenAuthenticator{exchanger: e}, nil
+}
+
+// A JWTKeyProvider provides the RSA private key used for signing JSON Web Tokens.
+type JWTKeyProvider interface {
+	Key() (*rsa.PrivateKey, error)
+	KeyID() string
+}
+
+// pemFileKeyProvider is an implementation of JWTKeyProvider which reads a
+// PEM-encoded key from a local file.
+type pemFileKeyProvider struct {
+	filename, keyID string
+	key             *rsa.PrivateKey
+}
+
+func (pfkp *pemFileKeyProvider) Key() (*rsa.PrivateKey, error) {
+	if pfkp.key != nil {
+		return pfkp.key, nil
+	}
+	f, err := os.Open(pfkp.filename)
+	if err != nil {
+		return nil, err
+	}
+	keyBytes, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	pfkp.key, err = jwt.ParseRSAPrivateKeyFromPEM(keyBytes)
+	if err != nil {
+		return nil, err
+	}
+	return pfkp.key, nil
+}
+
+func (pfkp *pemFileKeyProvider) KeyID() string {
+	return pfkp.keyID
+}
+
+// NewPEMFileKeyProvider returns a JWTKeyProvider which reads a PEM-encoded key
+// from the given file.
+func NewPEMFileKeyProvider(filename, keyID string) JWTKeyProvider {
+	return &pemFileKeyProvider{filename: filename, keyID: keyID}
+}
+
+type jwtOAuthExchanger struct {
+	issuer, subject, tokenURL       string
+	keyProvider                     JWTKeyProvider
+	jwtLifetime                     time.Duration
+	scopes                          []string
+	defaultExpiry                   time.Duration
+	alwaysAuthenticateIfNoExpiresIn bool
+}
+
+// buildBody serializes the provided slice of scopes for use in
+// authenticate's HTTP body using the expected urlencoded scheme, and adds in
+// the default grant_type.
+func (joe *jwtOAuthExchanger) buildBody() (io.Reader, error) {
+	key, err := joe.keyProvider.Key()
+	if err != nil {
+		return nil, err
+	}
+	now := timeNow()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS384, jwt.StandardClaims{
+		ExpiresAt: now.Add(joe.jwtLifetime).Unix(),
+		Issuer:    joe.issuer,
+		Subject:   joe.subject,
+		Audience:  joe.tokenURL,
+		Id:        uuid.New().String(),
+	})
+	token.Header["kid"] = joe.keyProvider.KeyID()
+	tokenString, err := token.SignedString(key)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{
+		"grant_type":            []string{"client_credentials"},
+		"client_assertion":      []string{tokenString},
+		"client_assertion_type": []string{"urn:ietf:params:oauth:client-assertion-type:jwt-bearer"},
+	}
+	if len(joe.scopes) > 0 {
+		v.Add("scope", strings.Join(joe.scopes, " "))
+	}
+
+	return bytes.NewBufferString(v.Encode()), nil
+}
+
+// authenticate is credentialExchanger.authenticate.
+//
+// This credentialExchanger performs 2-legged OAuth using HTTP Basic
+// Authentication to obtain an expiry token.
+func (joe *jwtOAuthExchanger) authenticate(hc *http.Client) (*bearerToken, error) {
+	body, err := joe.buildBody()
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, joe.tokenURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(acceptHeader, acceptHeaderJSON)
+	req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
+
+	return doOAuthExchange(hc, req, joe.defaultExpiry, joe.alwaysAuthenticateIfNoExpiresIn)
+}
+
+// JWTOAuthOptions contains optional parameters used by NewJWTOAuthAuthenticator.
+type JWTOAuthOptions struct {
+	// How long the generated JWT is valid for (according to its "exp" claim).
+	// Defaults to 5 minutes if unset.
+	JWTLifetime time.Duration
+
+	// OAuth scopes used when authenticating.
+	Scopes []string
+
+	// Whether the authenticator should always refresh if the authentication
+	// server does not provide an "expires_in" duration in the response. The
+	// default behaviour is to automatically authenticate upon first use (when
+	// AuthenticateIfNecessary or AddAuthenticationToRequest is called), and then
+	// to not authenticate again if no expiry time can be determined.
+	//
+	// Consider using DefaultExpiry instead to provide an expiry duration that is
+	// used for determining the expiry time after each credential exchange.
+	AlwaysAuthenticateIfNoExpiresIn bool
+
+	// A default expiry duration to use if the authentication server does not
+	// provide an "expires_in" duration in the response.
+	DefaultExpiry time.Duration
+}
+
+// NewJWTOAuthAuthenticator creates a new Authenticator which uses  2-legged
+// OAuth with JWT authentication (according to RFC9068) to obtain a bearer token.
+func NewJWTOAuthAuthenticator(issuer, subject, tokenURL string, keyProvider JWTKeyProvider, opts *JWTOAuthOptions) (Authenticator, error) {
+	if issuer == "" || subject == "" {
+		return nil, errors.New("issuer and subject must be specified for JWT OAuth authentication")
+	}
+	parsed, err := url.Parse(tokenURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token URL %q: %w", tokenURL, err)
+	}
+	if !parsed.IsAbs() {
+		return nil, fmt.Errorf("token URL %q is not absolute", tokenURL)
+	}
+
+	e := &jwtOAuthExchanger{
+		issuer:      issuer,
+		subject:     subject,
+		tokenURL:    tokenURL,
+		keyProvider: keyProvider,
+		jwtLifetime: time.Minute,
+	}
+	if opts != nil {
+		e.scopes = opts.Scopes
+		e.alwaysAuthenticateIfNoExpiresIn = opts.AlwaysAuthenticateIfNoExpiresIn
+		e.defaultExpiry = opts.DefaultExpiry
+		if opts.JWTLifetime > 0 {
+			e.jwtLifetime = opts.JWTLifetime
+		}
 	}
 
 	return &bearerTokenAuthenticator{exchanger: e}, nil
