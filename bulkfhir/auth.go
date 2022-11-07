@@ -44,6 +44,30 @@ type Authenticator interface {
 	AddAuthenticationToRequest(hc *http.Client, req *http.Request) error
 }
 
+// bearerToken encapsulates a bearer token presented as an Authorization header.
+type bearerToken struct {
+	token  string
+	expiry time.Time
+}
+
+func (bt *bearerToken) shouldRenew(alwaysAuthenticateIfNoExpiresIn bool) bool {
+	if bt == nil || bt.token == "" {
+		return true
+	}
+	if bt.expiry.IsZero() {
+		if alwaysAuthenticateIfNoExpiresIn {
+			return true
+		}
+	} else if bt.expiry.Before(timeNow()) {
+		return true
+	}
+	return false
+}
+
+func (bt *bearerToken) addHeader(req *http.Request) {
+	req.Header.Set(authorizationHeader, fmt.Sprintf("Bearer %s", bt.token))
+}
+
 // HTTPBasicOAuthAuthenticator is an implementation of Authenticator which performs a
 // 2-legged OAuth2 handshake using HTTP Basic Authentication to obtain an access token,
 // which is presented as an "Authorization: Bearer {token}" header in all requests.
@@ -54,8 +78,7 @@ type HTTPBasicOAuthAuthenticator struct {
 	tokenURL           string
 	scopes             []string
 
-	token  string
-	expiry time.Time
+	token *bearerToken
 
 	alwaysAuthenticateIfNoExpiresIn bool
 	defaultExpiry                   time.Duration
@@ -159,16 +182,7 @@ func (hboa *HTTPBasicOAuthAuthenticator) Authenticate(hc *http.Client) error {
 		return err
 	}
 
-	hboa.token = tr.Token
-	if tr.ExpiresInSecs > 0 {
-		hboa.expiry = timeNow().Add(time.Duration(tr.ExpiresInSecs) * time.Second)
-	} else if hboa.defaultExpiry > 0 {
-		hboa.expiry = timeNow().Add(hboa.defaultExpiry)
-	} else {
-		// Zero out the expiry time in case the authentication server doesn't always
-		// provide expires_in.
-		hboa.expiry = time.Time{}
-	}
+	hboa.token = tr.toBearerToken(hboa.defaultExpiry)
 
 	return nil
 }
@@ -177,6 +191,16 @@ func (hboa *HTTPBasicOAuthAuthenticator) Authenticate(hc *http.Client) error {
 type tokenResponse struct {
 	Token         string `json:"access_token"`
 	ExpiresInSecs int64  `json:"expires_in"`
+}
+
+func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration) *bearerToken {
+	bt := &bearerToken{token: tr.Token}
+	if tr.ExpiresInSecs > 0 {
+		bt.expiry = timeNow().Add(time.Duration(tr.ExpiresInSecs) * time.Second)
+	} else if defaultExpiry > 0 {
+		bt.expiry = timeNow().Add(defaultExpiry)
+	}
+	return bt
 }
 
 // AuthenticateIfNecessary is Authenticator.AuthenticateIfNecessary.
@@ -192,14 +216,7 @@ type tokenResponse struct {
 //   - No expiry time is available, and AlwaysAuthenticateIfNoExpiresIn was set
 //     to true then the authenticator was created.
 func (hboa *HTTPBasicOAuthAuthenticator) AuthenticateIfNecessary(hc *http.Client) error {
-	if hboa.token == "" {
-		return hboa.Authenticate(hc)
-	}
-	if hboa.expiry.IsZero() {
-		if hboa.alwaysAuthenticateIfNoExpiresIn {
-			return hboa.Authenticate(hc)
-		}
-	} else if hboa.expiry.Before(timeNow()) {
+	if hboa.token.shouldRenew(hboa.alwaysAuthenticateIfNoExpiresIn) {
 		return hboa.Authenticate(hc)
 	}
 	return nil
@@ -213,6 +230,6 @@ func (hboa *HTTPBasicOAuthAuthenticator) AddAuthenticationToRequest(hc *http.Cli
 	if err := hboa.AuthenticateIfNecessary(hc); err != nil {
 		return err
 	}
-	req.Header.Add(authorizationHeader, fmt.Sprintf("Bearer %s", hboa.token))
+	hboa.token.addHeader(req)
 	return nil
 }
