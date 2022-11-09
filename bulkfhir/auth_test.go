@@ -167,6 +167,12 @@ func TestHTTPBasicOAuthAuthenticator_AuthenticateOnlyIfNecessary(t *testing.T) {
 			wantAuthHeader:   "Bearer token2",
 		},
 		{
+			description:      "with string expires_in, expiry reached",
+			responseTemplate: `{"access_token": "token%d", "expires_in": "1200"}`,
+			advanceTime:      25 * time.Minute,
+			wantAuthHeader:   "Bearer token2",
+		},
+		{
 			description:      "no expires_in, default behaviour",
 			responseTemplate: `{"access_token": "token%d"}`,
 			advanceTime:      25 * time.Minute,

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,8 +138,53 @@ func (bta *bearerTokenAuthenticator) AddAuthenticationToRequest(hc *http.Client,
 
 // tokenResponse represents an OAuth response from a token endpoint.
 type tokenResponse struct {
-	Token         string `json:"access_token"`
-	ExpiresInSecs int64  `json:"expires_in"`
+	Token         string
+	ExpiresInSecs int64
+}
+
+// UnmarshalJSON contains custom logic needed to unmarshal a json tokenResponse.
+// This is needed because some servers (like BCDA) incorrectly return expires_in
+// as a string whereas most servers return a numeric type which is in accordance
+// with the RFC6749 specification. It is called automatically when using
+// encoding/json to unmarshal the data, since this allows tokenResponse to meet
+// the encoding/json.Unmarshaler interface.
+func (tr *tokenResponse) UnmarshalJSON(data []byte) error {
+	t := struct {
+		Token         string      `json:"access_token"`
+		ExpiresInSecs interface{} `json:"expires_in"`
+	}{}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+
+	tr.Token = t.Token
+
+	switch v := t.ExpiresInSecs.(type) {
+	case float64:
+		// This is what we expect. It's float64 because that's how the unmarshaler
+		// unmarshals generic numeric types.
+		if math.Mod(v, 1.0) != 0 {
+			// This is actually a non-int for some reason. This may be okay, but for
+			// now we treat it as an error to keep things simple.
+			return fmt.Errorf("expires_in was a non-integer number: %v", v)
+		}
+		tr.ExpiresInSecs = int64(v)
+	case string:
+		// We got a string value. While this is not in accordance with the OAuth
+		// spec, BCDA is known to return a string value for now so we support it.
+		// See b/258310551 for more.
+		expiresInInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to parse string expires_in: %w", err)
+		}
+		tr.ExpiresInSecs = expiresInInt
+	case nil:
+		return nil
+	default:
+		return fmt.Errorf("unexpected data type for expires_in: %T", t.ExpiresInSecs)
+	}
+
+	return nil
 }
 
 func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiry bool) *bearerToken {
