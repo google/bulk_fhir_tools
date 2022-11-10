@@ -160,54 +160,12 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore:                   true,
 			enableFHIRStoreUploadErrorFileDir: true,
 		},
-		{
-			name:             "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
-			rectify:          true,
-			enableFHIRStore:  true,
-			since:            "2006-01-02T15:04:05.000-07:00",
-			bcdaJobURLSuffix: "/jobs/999",
-		},
-		{
-			name:                     "SinceFileProvidedWithBCDAV2WithBCDAJobId",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
-			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
-			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobURLSuffix:         "/jobs/999",
-		},
-		{
-			name:                     "SinceFileEmptyProvidedWithBCDAV2WithBCDAJobId",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			sinceFileContent:         []byte(""),
-			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobURLSuffix:         "/jobs/999",
-		},
 		// Only testing cases with FHIR Store enabled for setting outputPrefix to ""
 		{
 			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV2",
 			rectify:           true,
 			enableFHIRStore:   true,
 			unsetOutputPrefix: true,
-		},
-		{
-			name:              "EmptyOutputPrefixWithSinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
-			rectify:           true,
-			enableFHIRStore:   true,
-			since:             "2006-01-02T15:04:05.000-07:00",
-			bcdaJobURLSuffix:  "/jobs/999",
-			unsetOutputPrefix: true,
-		},
-		{
-			name:                     "EmptyOutputPrefixWithSinceFileProvidedWithBCDAV2WithBCDAJobIdWithFHIRStore",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
-			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
-			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobURLSuffix:         "/jobs/999",
-			unsetOutputPrefix:        true,
 		},
 		// Batch upload tests cases
 		{
@@ -438,7 +396,7 @@ func TestMainWrapper(t *testing.T) {
 
 				if tc.bcdaJobURLSuffix != "" {
 					if got := exportEndpointCalled.Value(); got > 0 {
-						t.Errorf("mainWrapper: when bcdaJobID is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+						t.Errorf("mainWrapper: when bcdaJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
 					}
 				}
 
@@ -768,18 +726,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestMainWrapper_WithDeprecatedJobIDFlag(t *testing.T) {
-	t.Parallel()
-	cfg := mainWrapperConfig{
-		clientID:     "ID",
-		clientSecret: "secret",
-		bcdaJobID:    "1234",
-	}
-	if err := mainWrapper(cfg); !errors.Is(err, errBCDAJobIDDeprecated) {
-		t.Errorf("mainWrapper unexpected error. got: %v, want: %v", err, errBCDAJobIDDeprecated)
 	}
 }
 
