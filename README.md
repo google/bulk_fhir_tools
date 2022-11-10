@@ -86,7 +86,6 @@ to follow your organization's policies with respect to PHI.__
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
     -output_prefix="/path/to/store/output/data/prefix_" \
-    -use_v2=true \
     -alsologtostderr=true -stderrthreshold=0
   ```
   Change the -bcda_server_url as needed. You will need to change it if you are
@@ -142,7 +141,6 @@ Note, do not run concurrent instances of fetch that use the same since file.
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
     -output_prefix="/path/to/store/output/data/prefix_" \
-    -use_v2=true \
     -rectify=true \
     -enable_fhir_store=true \
     -fhir_store_gcp_project="your_project" \

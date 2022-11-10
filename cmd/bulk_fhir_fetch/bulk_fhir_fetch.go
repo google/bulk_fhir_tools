@@ -44,7 +44,6 @@ var (
 	clientID     = flag.String("client_id", "", "BCDA API client ID (required)")
 	clientSecret = flag.String("client_secret", "", "BCDA API client secret (required)")
 	outputPrefix = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
-	useV2        = flag.Bool("use_v2", false, "This indicates if the BCDA V2 API should be used, which returns R4 mapped data.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
@@ -509,11 +508,7 @@ func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
 		}
 		return bulkfhir.NewClient(cfg.baseServerURL, authenticator)
 	}
-	apiVersion := bcda.V1
-	if cfg.useV2 {
-		apiVersion = bcda.V2
-	}
-	return bcda.NewClient(cfg.bcdaServerURL, apiVersion, cfg.clientID, cfg.clientSecret)
+	return bcda.NewClient(cfg.bcdaServerURL, bcda.V2, cfg.clientID, cfg.clientSecret)
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the
@@ -529,7 +524,6 @@ type mainWrapperConfig struct {
 	clientID                      string
 	clientSecret                  string
 	outputPrefix                  string
-	useV2                         bool
 	rectify                       bool
 	enableFHIRStore               bool
 	maxFHIRStoreUploadWorkers     int
@@ -562,7 +556,6 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		clientID:     *clientID,
 		clientSecret: *clientSecret,
 		outputPrefix: *outputPrefix,
-		useV2:        *useV2,
 		rectify:      *rectify,
 
 		enableFHIRStore:             *enableFHIRStore,

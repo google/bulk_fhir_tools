@@ -37,7 +37,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 )
@@ -47,7 +46,6 @@ func TestMainWrapper(t *testing.T) {
 		name                              string
 		rectify                           bool
 		enableFHIRStore                   bool
-		apiVersion                        bcda.Version
 		since                             string // empty string indicates no value provided.
 		enableFHIRStoreUploadErrorFileDir bool
 
@@ -73,56 +71,26 @@ func TestMainWrapper(t *testing.T) {
 		wantError                    error
 	}{
 		{
-			name:            "RectifyEnabledWithoutFHIRStoreBCDAV1",
-			rectify:         true,
-			enableFHIRStore: false,
-			apiVersion:      bcda.V1,
-		},
-		{
 			name:            "RectifyEnabledWithoutFHIRStoreBCDAV2",
 			rectify:         true,
 			enableFHIRStore: false,
-			apiVersion:      bcda.V2,
-		},
-		{
-			name:            "RectifyEnabledWithFHIRStoreBCDAV1",
-			rectify:         true,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V1,
 		},
 		{
 			name:            "RectifyEnabledWithFHIRStoreBCDAV2",
 			rectify:         true,
 			enableFHIRStore: true,
-			apiVersion:      bcda.V2,
-		},
-		{
-			name:            "RectifyDisabledWithoutFHIRStoreBCDAV1",
-			rectify:         false,
-			enableFHIRStore: false,
-			apiVersion:      bcda.V1,
 		},
 		{
 			name:            "RectifyDisabledWithoutFHIRStoreBCDAV2",
 			rectify:         false,
 			enableFHIRStore: false,
-			apiVersion:      bcda.V2,
 		},
 
 		// Currently, rectify must be enabled to upload to FHIR store.
 		{
-			name:                         "RectifyDisabledWithFHIRStoreBCDAV1",
-			rectify:                      false,
-			enableFHIRStore:              true,
-			apiVersion:                   bcda.V1,
-			disableFHIRStoreUploadChecks: true,
-			wantError:                    errMustRectifyForFHIRStore,
-		},
-		{
 			name:                         "RectifyDisabledWithFHIRStoreBCDAV2",
 			rectify:                      false,
 			enableFHIRStore:              true,
-			apiVersion:                   bcda.V2,
 			disableFHIRStoreUploadChecks: true,
 			wantError:                    errMustRectifyForFHIRStore,
 		},
@@ -132,37 +100,18 @@ func TestMainWrapper(t *testing.T) {
 			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV2",
 			rectify:         true,
 			enableFHIRStore: true,
-			apiVersion:      bcda.V2,
 			since:           "2006-01-02T15:04:05.000-07:00",
 		},
 		{
-			name:            "SinceProvidedWithRectifyWithFHIRStoreBCDAV1",
-			rectify:         true,
-			enableFHIRStore: true,
-			apiVersion:      bcda.V1,
-			since:           "2006-01-02T15:04:05.000-07:00",
-		},
-		{
-			name:       "InvalidSince",
-			rectify:    true,
-			apiVersion: bcda.V1,
-			since:      "2006-01-02",
-			wantError:  errInvalidSince,
+			name:      "InvalidSince",
+			rectify:   true,
+			since:     "2006-01-02",
+			wantError: errInvalidSince,
 		},
 		{
 			name:                     "SinceFileProvidedWithBCDAV2",
 			rectify:                  true,
 			enableFHIRStore:          true,
-			apiVersion:               bcda.V2,
-			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
-			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
-			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-		},
-		{
-			name:                     "SinceFileProvidedWithBCDAV1",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			apiVersion:               bcda.V1,
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
@@ -171,106 +120,50 @@ func TestMainWrapper(t *testing.T) {
 			name:                     "SinceFileEmptyProvidedWithBCDAV2",
 			rectify:                  true,
 			enableFHIRStore:          true,
-			apiVersion:               bcda.V2,
-			sinceFileContent:         []byte(""),
-			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
-		},
-		{
-			name:                     "SinceFileEmptyProvidedWithBCDAV1",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			apiVersion:               bcda.V1,
 			sinceFileContent:         []byte(""),
 			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
 		},
 		{
 			name:             "InvalidSinceFileInstant",
 			rectify:          true,
-			apiVersion:       bcda.V1,
 			sinceFileContent: []byte("2006-01-02\n"),
 			wantError:        errInvalidSince,
 		},
 		// Test FHIR Store upload failures.
 		{
-			name:              "FHIRStoreUploadFailuresBCDAV1",
-			rectify:           true,
-			enableFHIRStore:   true,
-			apiVersion:        bcda.V1,
-			fhirStoreFailures: true,
-			wantError:         errUploadFailures,
-		},
-		{
 			name:              "FHIRStoreUploadFailuresBCDAV2",
 			rectify:           true,
 			enableFHIRStore:   true,
-			apiVersion:        bcda.V2,
 			fhirStoreFailures: true,
 			wantError:         errUploadFailures,
-		},
-		{
-			name:                 "FHIRStoreUploadFailuresWithNoFailFlagBCDAV1",
-			rectify:              true,
-			enableFHIRStore:      true,
-			apiVersion:           bcda.V1,
-			fhirStoreFailures:    true,
-			noFailOnUploadErrors: true,
-			wantError:            nil,
 		},
 		{
 			name:                 "FHIRStoreUploadFailuresWithNoFailFlagBCDAV2",
 			rectify:              true,
 			enableFHIRStore:      true,
-			apiVersion:           bcda.V2,
 			fhirStoreFailures:    true,
 			noFailOnUploadErrors: true,
 			wantError:            nil,
 		},
 		// Test FHIR Store upload errors file output.
 		{
-			name:                              "ErrorFileWithFHIRStoreUploadFailuresBCDAV1",
-			rectify:                           true,
-			enableFHIRStore:                   true,
-			apiVersion:                        bcda.V1,
-			fhirStoreFailures:                 true,
-			enableFHIRStoreUploadErrorFileDir: true,
-			wantError:                         errUploadFailures,
-		},
-		{
 			name:                              "ErrorFileWithFHIRStoreUploadFailuresBCDAV2",
 			rectify:                           true,
 			enableFHIRStore:                   true,
-			apiVersion:                        bcda.V2,
 			fhirStoreFailures:                 true,
 			enableFHIRStoreUploadErrorFileDir: true,
 			wantError:                         errUploadFailures,
-		},
-		{
-			name:                              "ErrorFileWithSuccessfulUploadBCDAV1",
-			rectify:                           true,
-			enableFHIRStore:                   true,
-			apiVersion:                        bcda.V1,
-			enableFHIRStoreUploadErrorFileDir: true,
 		},
 		{
 			name:                              "ErrorFileWithSuccessfulUploadBCDAV2",
 			rectify:                           true,
 			enableFHIRStore:                   true,
-			apiVersion:                        bcda.V2,
 			enableFHIRStoreUploadErrorFileDir: true,
 		},
 		{
 			name:             "SinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
 			rectify:          true,
 			enableFHIRStore:  true,
-			apiVersion:       bcda.V2,
-			since:            "2006-01-02T15:04:05.000-07:00",
-			bcdaJobURLSuffix: "/jobs/999",
-		},
-		{
-			name:             "SinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
-			rectify:          true,
-			enableFHIRStore:  true,
-			apiVersion:       bcda.V1,
 			since:            "2006-01-02T15:04:05.000-07:00",
 			bcdaJobURLSuffix: "/jobs/999",
 		},
@@ -278,17 +171,6 @@ func TestMainWrapper(t *testing.T) {
 			name:                     "SinceFileProvidedWithBCDAV2WithBCDAJobId",
 			rectify:                  true,
 			enableFHIRStore:          true,
-			apiVersion:               bcda.V2,
-			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
-			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
-			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobURLSuffix:         "/jobs/999",
-		},
-		{
-			name:                     "SinceFileProvidedWithBCDAV1WithBCDAJobId",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			apiVersion:               bcda.V1,
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
@@ -298,40 +180,21 @@ func TestMainWrapper(t *testing.T) {
 			name:                     "SinceFileEmptyProvidedWithBCDAV2WithBCDAJobId",
 			rectify:                  true,
 			enableFHIRStore:          true,
-			apiVersion:               bcda.V2,
 			sinceFileContent:         []byte(""),
 			sinceFileExpectedContent: []byte("2020-12-09T11:00:00.123+00:00\n"),
 			bcdaJobURLSuffix:         "/jobs/999",
 		},
 		// Only testing cases with FHIR Store enabled for setting outputPrefix to ""
 		{
-			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV1",
-			rectify:           true,
-			enableFHIRStore:   true,
-			apiVersion:        bcda.V1,
-			unsetOutputPrefix: true,
-		},
-		{
 			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV2",
 			rectify:           true,
 			enableFHIRStore:   true,
-			apiVersion:        bcda.V2,
 			unsetOutputPrefix: true,
 		},
 		{
 			name:              "EmptyOutputPrefixWithSinceProvidedWithRectifyWithFHIRStoreBCDAV2WithBCDAJobId",
 			rectify:           true,
 			enableFHIRStore:   true,
-			apiVersion:        bcda.V2,
-			since:             "2006-01-02T15:04:05.000-07:00",
-			bcdaJobURLSuffix:  "/jobs/999",
-			unsetOutputPrefix: true,
-		},
-		{
-			name:              "EmptyOutputPrefixWithSinceProvidedWithRectifyWithFHIRStoreBCDAV1WithBCDAJobId",
-			rectify:           true,
-			enableFHIRStore:   true,
-			apiVersion:        bcda.V1,
 			since:             "2006-01-02T15:04:05.000-07:00",
 			bcdaJobURLSuffix:  "/jobs/999",
 			unsetOutputPrefix: true,
@@ -340,18 +203,6 @@ func TestMainWrapper(t *testing.T) {
 			name:                     "EmptyOutputPrefixWithSinceFileProvidedWithBCDAV2WithBCDAJobIdWithFHIRStore",
 			rectify:                  true,
 			enableFHIRStore:          true,
-			apiVersion:               bcda.V2,
-			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
-			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
-			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
-			bcdaJobURLSuffix:         "/jobs/999",
-			unsetOutputPrefix:        true,
-		},
-		{
-			name:                     "EmptyOutputPrefixWithSinceFileProvidedWithBCDAV1WithBCDAJobIdWithFHIRStore",
-			rectify:                  true,
-			enableFHIRStore:          true,
-			apiVersion:               bcda.V1,
 			sinceFileContent:         []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n"),
 			sinceFileLatestTimestamp: "2015-12-09T11:00:00.123+00:00",
 			sinceFileExpectedContent: []byte("2013-12-09T11:00:00.123+00:00\n2015-12-09T11:00:00.123+00:00\n2020-12-09T11:00:00.123+00:00\n"),
@@ -360,23 +211,13 @@ func TestMainWrapper(t *testing.T) {
 		},
 		// Batch upload tests cases
 		{
-			name:                       "BatchUploadWithBCDAV1",
-			enableFHIRStore:            true,
-			fhirStoreEnableBatchUpload: true,
-			apiVersion:                 bcda.V1,
-			rectify:                    true,
-		},
-		{
 			name:                       "BatchUploadWithBCDAV2",
 			enableFHIRStore:            true,
 			fhirStoreEnableBatchUpload: true,
-			apiVersion:                 bcda.V2,
 			rectify:                    true,
 		},
 		// TODO(b/226375559): see if we can generate some of the test cases above
 		// instead of having to spell them out explicitly.
-		// TODO(b/213365276): test that bcda V1 with rectify = true results in an
-		// error.
 	}
 	t.Parallel()
 	for _, tc := range cases {
@@ -390,30 +231,22 @@ func TestMainWrapper(t *testing.T) {
 			file2Data := []byte(`{"resourceType": "Coverage", "id": "CoverageID", "contract": [{"reference": "Coverage/part-a-contract1"}]}`)
 			file2DataRectified := []byte(`{"resourceType": "Coverage", "id": "CoverageID", "contract": [{"reference": "Contract/part-a-contract1"}]}`)
 			file3URLSuffix := "/data/30.ndjson"
-			file3Data := []byte(`{"resourceType": "ExplanationOfBenefit", "id": "EOBID", "provider":{"reference": "123"}, "insurance": [{"coverage": {"reference": "coverage"}, "focal": false}], "item": [{"sequence": 1, "productOrService": {"text": "test"}}]}`)
-			if tc.apiVersion == bcda.V2 {
-				// The valid R4 EOB, all other resources used in this test work across both
-				// STU3 and R4.
-				file3Data = []byte(`{` +
-					`"resourceType":"ExplanationOfBenefit","id":"EOBID",` +
-					`"patient":{"reference":"PatientID"},` +
-					`"use":"claim",` +
-					`"status":"active",` +
-					`"type":{"coding":[{"code":"71","display":"type","system":"https://bluebutton.cms.gov/resources/variables/nch_clm_type_cd"}]},` +
-					`"insurer":{"reference": "insurer-id"},` +
-					`"provider":{"reference":"provider-id"},` +
-					`"outcome":"complete",` +
-					`"insurance":[{"coverage":{"reference":"coverage"},"focal":true}],` +
-					`"created":"2021-07-30T10:57:34+01:00"}`)
-			}
+			file3Data := []byte(`{` +
+				`"resourceType":"ExplanationOfBenefit","id":"EOBID",` +
+				`"patient":{"reference":"PatientID"},` +
+				`"use":"claim",` +
+				`"status":"active",` +
+				`"type":{"coding":[{"code":"71","display":"type","system":"https://bluebutton.cms.gov/resources/variables/nch_clm_type_cd"}]},` +
+				`"insurer":{"reference": "insurer-id"},` +
+				`"provider":{"reference":"provider-id"},` +
+				`"outcome":"complete",` +
+				`"insurance":[{"coverage":{"reference":"coverage"},"focal":true}],` +
+				`"created":"2021-07-30T10:57:34+01:00"}`)
 
-			exportEndpoint := "/api/v1/Group/all/$export"
+			exportEndpoint := "/api/v2/Group/all/$export"
 			expectedJobURLSuffix := "/jobs/1234"
 			if tc.bcdaJobURLSuffix != "" {
 				expectedJobURLSuffix = tc.bcdaJobURLSuffix
-			}
-			if tc.apiVersion == bcda.V2 {
-				exportEndpoint = "/api/v2/Group/all/$export"
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -507,10 +340,6 @@ func TestMainWrapper(t *testing.T) {
 				since:                      tc.since,
 				noFailOnUploadErrors:       tc.noFailOnUploadErrors,
 				maxFHIRStoreUploadWorkers:  10,
-			}
-
-			if tc.apiVersion == bcda.V2 {
-				cfg.useV2 = true
 			}
 
 			if tc.enableFHIRStoreUploadErrorFileDir {
@@ -655,226 +484,172 @@ func TestMainWrapper(t *testing.T) {
 }
 
 func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
-	cases := []struct {
-		name       string
-		apiVersion bcda.Version
-	}{
-		{
-			name:       "BCDAV1",
-			apiVersion: bcda.V1,
-		},
-		{
-			name:       "BCDAV2",
-			apiVersion: bcda.V2,
-		},
-	}
 	t.Parallel()
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			// Declare test data:
-			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-			exportEndpoint := "/api/v1/Group/all/$export"
-			jobsEndpoint := "/api/v1/jobs/1234"
-			if tc.apiVersion == bcda.V2 {
-				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = "/api/v2/jobs/1234"
-			}
-			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+	// Declare test data:
+	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
+	exportEndpoint := "/api/v2/Group/all/$export"
+	jobsEndpoint := "/api/v2/jobs/1234"
+	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
-			// Setup BCDA test servers:
+	// Setup BCDA test servers:
 
-			// A seperate resource server is needed during testing, so that we can send
-			// the jobsEndpoint response in the bcdaServer that includes a URL for the
-			// bcdaResourceServer in it.
-			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				w.Write(file1Data)
-			}))
-			defer bcdaResourceServer.Close()
+	// A seperate resource server is needed during testing, so that we can send
+	// the jobsEndpoint response in the bcdaServer that includes a URL for the
+	// bcdaResourceServer in it.
+	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(file1Data)
+	}))
+	defer bcdaResourceServer.Close()
 
-			jobStatusURL := ""
+	jobStatusURL := ""
 
-			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				switch req.URL.Path {
-				case "/auth/token":
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
-				case exportEndpoint:
-					// Check that since is empty
-					if got := len(req.URL.Query()["_since"]); got != 0 {
-						t.Errorf("got unexpected _since URL param length. got: %v, want: %v", got, 0)
-						w.WriteHeader(http.StatusBadRequest)
-						return
-					}
-
-					w.Header()["Content-Location"] = []string{jobStatusURL}
-
-					w.WriteHeader(http.StatusAccepted)
-				case jobsEndpoint:
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
-				default:
-					w.WriteHeader(http.StatusBadRequest)
-				}
-			}))
-			defer bcdaServer.Close()
-
-			jobStatusURL = bcdaServer.URL + jobsEndpoint
-
-			// Set flags for this test case:
-			outputPrefix := t.TempDir()
-			sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
-			// instead of the flags in tests enables parallelization with significant
-			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
-				clientID:                  "id",
-				clientSecret:              "secret",
-				outputPrefix:              outputPrefix,
-				bcdaServerURL:             bcdaServer.URL,
-				sinceFile:                 sinceFilePath,
-				maxFHIRStoreUploadWorkers: 10,
+	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/auth/token":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
+		case exportEndpoint:
+			// Check that since is empty
+			if got := len(req.URL.Query()["_since"]); got != 0 {
+				t.Errorf("got unexpected _since URL param length. got: %v, want: %v", got, 0)
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
 
-			if tc.apiVersion == bcda.V2 {
-				cfg.useV2 = true
-			}
+			w.Header()["Content-Location"] = []string{jobStatusURL}
 
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); err != nil {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
-			}
+			w.WriteHeader(http.StatusAccepted)
+		case jobsEndpoint:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer bcdaServer.Close()
 
-			// Check that since file was created with the proper first entry.
-			expctedSinceFileContent := []byte("2020-12-09T11:00:00.123+00:00\n")
-			f, err := os.Open(sinceFilePath)
-			if err != nil {
-				t.Errorf("unable to open sinceTmpFile: %v", err)
-			}
-			defer f.Close()
-			fileData, err := io.ReadAll(f)
-			if err != nil {
-				t.Errorf("unable to read sinceTmpFile: %v", err)
-			}
+	jobStatusURL = bcdaServer.URL + jobsEndpoint
 
-			if !cmp.Equal(fileData, expctedSinceFileContent) {
-				t.Errorf("sinceFile unexpected content. got: %v, want: %v", fileData, expctedSinceFileContent)
-			}
-		})
+	// Set flags for this test case:
+	outputPrefix := t.TempDir()
+	sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
+	// Set mainWrapperConfig for this test case. In practice, values are
+	// populated in mainWrapperConfig from flags. Setting the config struct
+	// instead of the flags in tests enables parallelization with significant
+	// performance improvement. A seperate test below tests that setting flags
+	// properly populates mainWrapperConfig.
+	cfg := mainWrapperConfig{
+		clientID:                  "id",
+		clientSecret:              "secret",
+		outputPrefix:              outputPrefix,
+		bcdaServerURL:             bcdaServer.URL,
+		sinceFile:                 sinceFilePath,
+		maxFHIRStoreUploadWorkers: 10,
 	}
+
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != nil {
+		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
+
+	// Check that since file was created with the proper first entry.
+	expctedSinceFileContent := []byte("2020-12-09T11:00:00.123+00:00\n")
+	f, err := os.Open(sinceFilePath)
+	if err != nil {
+		t.Errorf("unable to open sinceTmpFile: %v", err)
+	}
+	defer f.Close()
+	fileData, err := io.ReadAll(f)
+	if err != nil {
+		t.Errorf("unable to read sinceTmpFile: %v", err)
+	}
+
+	if !cmp.Equal(fileData, expctedSinceFileContent) {
+		t.Errorf("sinceFile unexpected content. got: %v, want: %v", fileData, expctedSinceFileContent)
+	}
+
 }
 
 func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	// This tests that if JobStatus returns unauthorized, mainWrapper attempts to
 	// re-authorize and try again.
-	cases := []struct {
-		name       string
-		apiVersion bcda.Version
-	}{
-		{
-			name:       "BCDAV1",
-			apiVersion: bcda.V1,
-		},
-		{
-			name:       "BCDAV2",
-			apiVersion: bcda.V2,
-		},
+	t.Parallel()
+	// Declare test data:
+	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
+	exportEndpoint := "/api/v2/Group/all/$export"
+	jobsEndpoint := "/api/v2/jobs/1234"
+	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+	// Setup BCDA test servers:
+
+	// A seperate resource server is needed during testing, so that we can send
+	// the jobsEndpoint response in the bcdaServer that includes a URL for the
+	// bcdaResourceServer in it.
+	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(file1Data)
+	}))
+	defer bcdaResourceServer.Close()
+
+	var authCalled mutexCounter
+	var jobsCalled mutexCounter
+
+	jobStatusURL := ""
+
+	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/auth/token":
+			authCalled.Increment()
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
+		case exportEndpoint:
+
+			w.Header()["Content-Location"] = []string{jobStatusURL}
+
+			w.WriteHeader(http.StatusAccepted)
+		case jobsEndpoint:
+			jobsCalled.Increment()
+			if authCalled.Value() < 2 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer bcdaServer.Close()
+
+	jobStatusURL = bcdaServer.URL + jobsEndpoint
+
+	// Set flags for this test case:
+	outputPrefix := t.TempDir()
+	// Set mainWrapperConfig for this test case. In practice, values are
+	// populated in mainWrapperConfig from flags. Setting the config struct
+	// instead of the flags in tests enables parallelization with significant
+	// performance improvement. A seperate test below tests that setting flags
+	// properly populates mainWrapperConfig.
+	cfg := mainWrapperConfig{
+		clientID:                  "id",
+		clientSecret:              "secret",
+		outputPrefix:              outputPrefix,
+		bcdaServerURL:             bcdaServer.URL,
+		maxFHIRStoreUploadWorkers: 10,
 	}
 
-	t.Parallel()
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			// Declare test data:
-			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-			exportEndpoint := "/api/v1/Group/all/$export"
-			jobsEndpoint := "/api/v1/jobs/1234"
-			if tc.apiVersion == bcda.V2 {
-				exportEndpoint = "/api/v2/Group/all/$export"
-				jobsEndpoint = "/api/v2/jobs/1234"
-			}
-			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+	// Run mainWrapper:
+	if err := mainWrapper(cfg); err != nil {
+		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
 
-			// Setup BCDA test servers:
-
-			// A seperate resource server is needed during testing, so that we can send
-			// the jobsEndpoint response in the bcdaServer that includes a URL for the
-			// bcdaResourceServer in it.
-			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				w.Write(file1Data)
-			}))
-			defer bcdaResourceServer.Close()
-
-			var authCalled mutexCounter
-			var jobsCalled mutexCounter
-
-			jobStatusURL := ""
-
-			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				switch req.URL.Path {
-				case "/auth/token":
-					authCalled.Increment()
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
-				case exportEndpoint:
-
-					w.Header()["Content-Location"] = []string{jobStatusURL}
-
-					w.WriteHeader(http.StatusAccepted)
-				case jobsEndpoint:
-					jobsCalled.Increment()
-					if authCalled.Value() < 2 {
-						w.WriteHeader(http.StatusUnauthorized)
-						return
-					}
-
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
-				default:
-					w.WriteHeader(http.StatusBadRequest)
-				}
-			}))
-			defer bcdaServer.Close()
-
-			jobStatusURL = bcdaServer.URL + jobsEndpoint
-
-			// Set flags for this test case:
-			outputPrefix := t.TempDir()
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
-			// instead of the flags in tests enables parallelization with significant
-			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
-				clientID:                  "id",
-				clientSecret:              "secret",
-				outputPrefix:              outputPrefix,
-				bcdaServerURL:             bcdaServer.URL,
-				maxFHIRStoreUploadWorkers: 10,
-			}
-
-			if tc.apiVersion == bcda.V2 {
-				cfg.useV2 = true
-			}
-
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); err != nil {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
-			}
-
-			if got := authCalled.Value(); got != 2 {
-				t.Errorf("mainWrapper: expected auth to be called exactly twice, got: %d, want: %d", got, 2)
-			}
-			if got := jobsCalled.Value(); got != 2 {
-				t.Errorf("mainWrapper: expected jobStatus to be called exactly twice, got: %d, want: %d", got, 2)
-			}
-		})
+	if got := authCalled.Value(); got != 2 {
+		t.Errorf("mainWrapper: expected auth to be called exactly twice, got: %d, want: %d", got, 2)
+	}
+	if got := jobsCalled.Value(); got != 2 {
+		t.Errorf("mainWrapper: expected jobStatus to be called exactly twice, got: %d, want: %d", got, 2)
 	}
 }
 
@@ -883,59 +658,28 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 	// attempts to re-authorize and try again at least 5 times.
 	cases := []struct {
 		name               string
-		apiVersion         bcda.Version
 		httpErrorToRetrun  int
 		numRetriesBeforeOK int
 		wantError          error
 	}{
 		{
-			name:               "BCDAV1",
-			apiVersion:         bcda.V1,
-			httpErrorToRetrun:  http.StatusUnauthorized,
-			numRetriesBeforeOK: 5,
-		},
-		{
 			name:               "BCDAV2",
-			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 5,
-		},
-		{
-			name:               "BCDAV1TooManyRetries",
-			apiVersion:         bcda.V1,
-			httpErrorToRetrun:  http.StatusUnauthorized,
-			numRetriesBeforeOK: 6,
-			wantError:          bulkfhir.ErrorUnauthorized,
 		},
 		{
 			name:               "BCDAV2TooManyRetries",
-			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusUnauthorized,
 			numRetriesBeforeOK: 6,
 			wantError:          bulkfhir.ErrorUnauthorized,
 		},
 		{
-			name:               "BCDAV1With404",
-			apiVersion:         bcda.V1,
-			httpErrorToRetrun:  http.StatusNotFound,
-			numRetriesBeforeOK: 5,
-		},
-		{
 			name:               "BCDAV2With404",
-			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusNotFound,
 			numRetriesBeforeOK: 5,
-		},
-		{
-			name:               "BCDAV1TooManyRetriesWith404",
-			apiVersion:         bcda.V1,
-			httpErrorToRetrun:  http.StatusNotFound,
-			numRetriesBeforeOK: 6,
-			wantError:          bulkfhir.ErrorRetryableHTTPStatus,
 		},
 		{
 			name:               "BCDAV2TooManyRetriesWith404",
-			apiVersion:         bcda.V2,
 			httpErrorToRetrun:  http.StatusNotFound,
 			numRetriesBeforeOK: 6,
 			wantError:          bulkfhir.ErrorRetryableHTTPStatus,
@@ -948,12 +692,8 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			t.Parallel()
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-			exportEndpoint := "/api/v1/Group/all/$export"
-			jobURLSuffix := "/api/v1/jobs/1234"
-			if tc.apiVersion == bcda.V2 {
-				exportEndpoint = "/api/v2/Group/all/$export"
-				jobURLSuffix = "/api/v2/jobs/1234"
-			}
+			exportEndpoint := "/api/v2/Group/all/$export"
+			jobURLSuffix := "/api/v2/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
 			var authCalled mutexCounter
@@ -1014,10 +754,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				maxFHIRStoreUploadWorkers: 10,
 			}
 
-			if tc.apiVersion == bcda.V2 {
-				cfg.useV2 = true
-			}
-
 			// Run mainWrapper:
 			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
 				t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, tc.wantError)
@@ -1052,27 +788,14 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 	// bulk_fhir_fetch.
 	cases := []struct {
 		name            string
-		apiVersion      bcda.Version
 		batchUploadSize int
 	}{
 		{
-			name:            "BCDAV1WithBatchSize2",
-			apiVersion:      bcda.V1,
-			batchUploadSize: 2,
-		},
-		{
 			name:            "BCDAV2WithBatchSize2",
-			apiVersion:      bcda.V2,
 			batchUploadSize: 2,
-		},
-		{
-			name:            "BCDAV1WithBatchSize3",
-			apiVersion:      bcda.V1,
-			batchUploadSize: 3,
 		},
 		{
 			name:            "BCDAV2WithBatchSize3",
-			apiVersion:      bcda.V2,
 			batchUploadSize: 3,
 		},
 	}
@@ -1087,12 +810,8 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			patient2 := `{"resourceType":"Patient","id":"PatientID2"}`
 			patient3 := `{"resourceType":"Patient","id":"PatientID3"}`
 			file1Data := []byte(patient1 + "\n" + patient2 + "\n" + patient3)
-			exportEndpoint := "/api/v1/Group/all/$export"
-			jobStatusURLSuffix := "/api/v1/jobs/1234"
-			if tc.apiVersion == bcda.V2 {
-				exportEndpoint = "/api/v2/Group/all/$export"
-				jobStatusURLSuffix = "/api/v2/jobs/1234"
-			}
+			exportEndpoint := "/api/v2/Group/all/$export"
+			jobStatusURLSuffix := "/api/v2/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
 			// Setup BCDA test servers:
@@ -1161,10 +880,6 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				enableFHIRStore:            true,
 				rectify:                    true,
 				maxFHIRStoreUploadWorkers:  1,
-			}
-
-			if tc.apiVersion == bcda.V2 {
-				cfg.useV2 = true
 			}
 
 			expectedResources := [][]byte{[]byte(patient1), []byte(patient2), []byte(patient3)}
@@ -1302,7 +1017,6 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		fhirStoreGCSBasedUploadBucket: bucketName,
 		enableFHIRStore:               true,
 		rectify:                       true,
-		useV2:                         true,
 	}
 	// Run mainWrapper:
 	if err := mainWrapper(cfg); err != nil {
@@ -1535,7 +1249,6 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		outputPrefix:  outputPrefix,
 		bcdaServerURL: bcdaServer.URL,
 		rectify:       true,
-		useV2:         true,
 		sinceFile:     sinceFile,
 	}
 	// Run mainWrapper:
@@ -1573,7 +1286,6 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("client_id", "clientID")
 	flag.Set("client_secret", "clientSecret")
 	flag.Set("output_prefix", "outputPrefix")
-	flag.Set("use_v2", "true")
 	flag.Set("rectify", "true")
 	flag.Set("enable_fhir_store", "true")
 	flag.Set("max_fhir_store_upload_workers", "99")
@@ -1604,7 +1316,6 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		clientID:                      "clientID",
 		clientSecret:                  "clientSecret",
 		outputPrefix:                  "outputPrefix",
-		useV2:                         true,
 		rectify:                       true,
 		enableFHIRStore:               true,
 		maxFHIRStoreUploadWorkers:     99,
