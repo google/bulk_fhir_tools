@@ -68,14 +68,13 @@ var (
 	since                = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
 	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from BCDA. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the BCDA transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data. If the file is of the form `gs://<GCS Bucket Name>/<Since File Name>` it will attempt to write the since file to the GCS bucket and file specified.")
 	noFailOnUploadErrors = flag.Bool("no_fail_on_upload_errors", false, "If true, fetch will not fail on FHIR store upload errors, and will continue (and write out updates to since_file) as normal.")
-	bcdaJobURL           = flag.String("bcda_job_url", "", "If set, skip calling the BCD API to create a new data export job. Instead, bulk_fhir_fetch will download and process the data from the BCDA job url provided by this flag. bcda_fetch will wait until the provided job id is complete before proceeding.")
+	pendingJobURL        = flag.String("pending_job_url", "", "(For debug/manual use). If set, skip creating a new FHIR export job on the bulk fhir server. Instead, bulk_fhir_fetch will download and process the data from the existing pending job url provided by this flag. bulk_fhir_fetch will wait until the provided job id is complete before proceeding.")
 )
 
 var (
 	errInvalidSince            = errors.New("invalid since timestamp")
 	errUploadFailures          = errors.New("fhir store upload failures")
 	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
-	errBCDAJobIDDeprecated     = errors.New("bcda_job_id flag is deprecated in favor of the bcda_job_url flag")
 	errMustSpecifyGCSBucket    = errors.New("if fhir_store_enable_gcs_based_upload=true, fhir_store_gcs_based_upload_bucket must be set")
 )
 
@@ -149,7 +148,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return err
 	}
 
-	jobURL := cfg.bcdaJobURL
+	jobURL := cfg.pendingJobURL
 	if jobURL == "" {
 		jobURL, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince, bulkfhir.ExportGroupAll)
 		if err != nil {
@@ -539,7 +538,7 @@ type mainWrapperConfig struct {
 	since                         string
 	sinceFile                     string
 	noFailOnUploadErrors          bool
-	bcdaJobURL                    string
+	pendingJobURL                 string
 }
 
 func buildMainWrapperConfig() mainWrapperConfig {
@@ -573,6 +572,6 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		since:                    *since,
 		sinceFile:                *sinceFile,
 		noFailOnUploadErrors:     *noFailOnUploadErrors,
-		bcdaJobURL:               *bcdaJobURL,
+		pendingJobURL:            *pendingJobURL,
 	}
 }

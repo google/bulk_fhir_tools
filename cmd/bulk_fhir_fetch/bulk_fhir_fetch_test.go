@@ -60,7 +60,7 @@ func TestMainWrapper(t *testing.T) {
 		// set to true.
 		fhirStoreFailures          bool
 		noFailOnUploadErrors       bool
-		bcdaJobURLSuffix           string
+		pendingJobURLSuffix        string
 		fhirStoreEnableBatchUpload bool
 		// unsetOutputPrefix sets the outputPrefix to empty string if true.
 		unsetOutputPrefix bool
@@ -203,8 +203,8 @@ func TestMainWrapper(t *testing.T) {
 
 			exportEndpoint := "/api/v2/Group/all/$export"
 			expectedJobURLSuffix := "/jobs/1234"
-			if tc.bcdaJobURLSuffix != "" {
-				expectedJobURLSuffix = tc.bcdaJobURLSuffix
+			if tc.pendingJobURLSuffix != "" {
+				expectedJobURLSuffix = tc.pendingJobURLSuffix
 			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -291,7 +291,7 @@ func TestMainWrapper(t *testing.T) {
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
 				fhirStoreID:                gcpFHIRStoreID,
-				bcdaJobURL:                 bcdaServer.URL + expectedJobURLSuffix,
+				pendingJobURL:              bcdaServer.URL + expectedJobURLSuffix,
 				fhirStoreEnableBatchUpload: tc.fhirStoreEnableBatchUpload,
 				enableFHIRStore:            tc.enableFHIRStore,
 				rectify:                    tc.rectify,
@@ -394,9 +394,9 @@ func TestMainWrapper(t *testing.T) {
 					expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
 				}
 
-				if tc.bcdaJobURLSuffix != "" {
+				if tc.pendingJobURLSuffix != "" {
 					if got := exportEndpointCalled.Value(); got > 0 {
-						t.Errorf("mainWrapper: when bcdaJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+						t.Errorf("mainWrapper: when pendingJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
 					}
 				}
 
@@ -1254,7 +1254,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("since", "12345")
 	flag.Set("since_file", "sinceFile")
 	flag.Set("no_fail_on_upload_errors", "true")
-	flag.Set("bcda_job_url", "jobURL")
+	flag.Set("pending_job_url", "jobURL")
 
 	expectedCfg := mainWrapperConfig{
 		fhirStoreEndpoint:             fhirstore.DefaultHealthcareEndpoint,
@@ -1282,7 +1282,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		since:                         "12345",
 		sinceFile:                     "sinceFile",
 		noFailOnUploadErrors:          true,
-		bcdaJobURL:                    "jobURL",
+		pendingJobURL:                 "jobURL",
 	}
 
 	if diff := cmp.Diff(buildMainWrapperConfig(), expectedCfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
