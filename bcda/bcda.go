@@ -20,6 +20,8 @@ import (
 	"errors"
 
 	"github.com/google/medical_claims_tools/bulkfhir"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 // ErrorInvalidVersion indicates the API version provided is invalid.
@@ -34,6 +36,13 @@ const (
 	// V2 represents the V2 BCDA API version.
 	V2
 )
+
+// ResourceTypes represents the set of resource types used by BCDA.
+var ResourceTypes = []cpb.ResourceTypeCode_Value{
+	cpb.ResourceTypeCode_PATIENT,
+	cpb.ResourceTypeCode_COVERAGE,
+	cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+}
 
 // TODO(b/239856442): rename exported methods to include bulk fhir. For example
 // NewBulkFHIRClient.

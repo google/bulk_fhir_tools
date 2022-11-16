@@ -99,7 +99,7 @@ func TestNewClient(t *testing.T) {
 				return
 			}
 
-			_, err = cl.StartBulkDataExport([]bulkfhir.ResourceType{}, time.Time{}, bulkfhir.ExportGroupAll)
+			_, err = cl.StartBulkDataExport(nil, time.Time{}, bulkfhir.ExportGroupAll)
 			if err != nil {
 				t.Errorf("got unexpected error from StartBulkDataExport: %v", err)
 			}

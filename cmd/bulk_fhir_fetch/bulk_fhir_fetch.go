@@ -150,7 +150,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	jobURL := cfg.pendingJobURL
 	if jobURL == "" {
-		jobURL, err = cl.StartBulkDataExport(bulkfhir.AllResourceTypes, parsedSince, bulkfhir.ExportGroupAll)
+		jobURL, err = cl.StartBulkDataExport(bcda.ResourceTypes, parsedSince, bulkfhir.ExportGroupAll)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
 		}
@@ -179,8 +179,13 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	}
 
 	for r, urls := range jobStatus.ResultURLs {
+		resourceName, err := bulkfhir.ResourceTypeCodeToName(r)
+		if err != nil {
+			return err
+		}
+
 		for i, url := range urls {
-			filename := fmt.Sprintf("%s_%d.ndjson", r, i)
+			filename := fmt.Sprintf("%s_%d.ndjson", resourceName, i)
 
 			r, err := getDataOrExit(cl, url, cfg.clientID, cfg.clientSecret)
 			if err != nil {

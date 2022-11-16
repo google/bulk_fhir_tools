@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/google/medical_claims_tools/fhir"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 var (
@@ -63,64 +65,6 @@ var (
 // StartBulkDataExport. Depending on your FHIR server, the all patients group
 // ID may differ, so be sure to consult relevant documentation.
 var ExportGroupAll = "all"
-
-// TODO(b/239856442): generalize further to support additional resource types.
-
-// ResourceType represents a FHIR resource that can be retrieved from the BCDA API.
-type ResourceType int
-
-const (
-	// Patient represents a Patient FHIR resource type.
-	Patient ResourceType = iota
-	// Coverage represents a Coverage FHIR resource type.
-	Coverage
-	// ExplanationOfBenefit represents an ExplanationOfBenefit FHIR resource type.
-	ExplanationOfBenefit
-	// OperationOutcome is a FHIR resource type describing data that the BCD API
-	// can't export due to errors.
-	OperationOutcome
-)
-
-// AllResourceTypes is a ResourceType slice that will represent all ResourceTypes.
-var AllResourceTypes = []ResourceType{Patient, Coverage, ExplanationOfBenefit}
-
-// ToAPI returns the string BCDA API representation of the ResourceType.
-func (r ResourceType) ToAPI() (string, error) {
-	switch r {
-	case Patient:
-		return "Patient", nil
-	case Coverage:
-		return "Coverage", nil
-	case ExplanationOfBenefit:
-		return "ExplanationOfBenefit", nil
-	case OperationOutcome:
-		return "OperationOutcome", nil
-	}
-	return "", errors.New("the specified resource type does not have a mapped BCDA API value")
-}
-
-func (r ResourceType) String() string {
-	s, err := r.ToAPI()
-	if err != nil {
-		return fmt.Sprintf("INVALID(%d)", int(r))
-	}
-	return s
-}
-
-// ResourceTypeFromAPI converts the API representation of a ResourceType to the internal enumerated representation.
-func ResourceTypeFromAPI(r string) (ResourceType, error) {
-	switch r {
-	case "Patient":
-		return Patient, nil
-	case "Coverage":
-		return Coverage, nil
-	case "ExplanationOfBenefit":
-		return ExplanationOfBenefit, nil
-	case "OperationOutcome":
-		return OperationOutcome, nil
-	}
-	return ResourceType(-1), errors.New("not a valid ResourceType")
-}
 
 // Client represents a Bulk FHIR API client at some API version.
 type Client struct {
@@ -194,7 +138,7 @@ func (c *Client) doHTTP(req *http.Request) (*http.Response, error) {
 // and returns the URL to query the job status (from the response Content-
 // Location header). The variable bulkfhir.ExportGroupAll can be provided
 // for the group parameter if you wish to retrieve all FHIR resources.
-func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time, groupID string) (jobStatusURL string, err error) {
+func (c *Client) StartBulkDataExport(types []cpb.ResourceTypeCode_Value, since time.Time, groupID string) (jobStatusURL string, err error) {
 	u, err := url.Parse(c.baseURL + fmt.Sprintf(bulkDataExportEndpointFmtStr, groupID))
 	if err != nil {
 		return "", err
@@ -248,8 +192,8 @@ func (c *Client) StartBulkDataExport(types []ResourceType, since time.Time, grou
 type JobStatus struct {
 	IsComplete      bool
 	PercentComplete int
-	// ResultURLs holds the final NDJSON URLs for the job by ResourceType (if the job is complete).
-	ResultURLs map[ResourceType][]string
+	// ResultURLs holds the final NDJSON URLs for the job by resource type (if the job is complete).
+	ResultURLs map[cpb.ResourceTypeCode_Value][]string
 	// Indicates the FHIR server time when the bulk data export was processed.
 	TransactionTime time.Time
 }
@@ -286,7 +230,7 @@ func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
 
 	case http.StatusOK:
 		// Job is finished, NDJSON is ready for download.
-		jobStatus := JobStatus{IsComplete: true, ResultURLs: make(map[ResourceType][]string)}
+		jobStatus := JobStatus{IsComplete: true, ResultURLs: make(map[cpb.ResourceTypeCode_Value][]string)}
 		var jr jobStatusResponse
 
 		dec := json.NewDecoder(resp.Body)
@@ -295,7 +239,7 @@ func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
 		}
 
 		for _, item := range jr.Output {
-			r, err := ResourceTypeFromAPI(item.ResourceType)
+			r, err := ResourceTypeCodeFromName(item.ResourceType)
 			if err != nil {
 				return JobStatus{}, err
 			}
@@ -408,12 +352,12 @@ type jobStatusOutput struct {
 	URL          string `json:"url"`
 }
 
-// resourceTypestoQueryValue takes a slice of ResourceType and converts it into a query string value
+// resourceTypestoQueryValue takes a slice of cpb.ResourceTypeCode_Value and converts it into a query string value
 // that can be sent to the bulk fhir API.
 //
 // For example [ExplanationOfBenefit, Patient] would result in "ExplanationOfBenefit,Patient"
-func resourceTypesToQueryValue(types []ResourceType) (string, error) {
-	v, err := types[0].ToAPI()
+func resourceTypesToQueryValue(types []cpb.ResourceTypeCode_Value) (string, error) {
+	v, err := ResourceTypeCodeToName(types[0])
 	if err != nil {
 		return "", err
 	}
@@ -421,7 +365,7 @@ func resourceTypesToQueryValue(types []ResourceType) (string, error) {
 	var b strings.Builder
 	b.WriteString(v)
 	for _, t := range types[1:] {
-		a, err := t.ToAPI()
+		a, err := ResourceTypeCodeToName(t)
 		if err != nil {
 			return "", err
 		}

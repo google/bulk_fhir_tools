@@ -26,6 +26,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 type testAuthenticator struct{}
@@ -40,14 +42,18 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
+		_, err := cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
 		if err != ErrorUnauthorized {
 			t.Errorf("StartBulkDataExport unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
 		}
 	})
 
 	t.Run("full test with since and resource types", func(t *testing.T) {
-		resourceTypes := []ResourceType{Patient, ExplanationOfBenefit, Coverage}
+		resourceTypes := []cpb.ResourceTypeCode_Value{
+			cpb.ResourceTypeCode_PATIENT,
+			cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			cpb.ResourceTypeCode_COVERAGE,
+		}
 		since := time.Date(2013, 12, 9, 11, 0, 0, 123000000, time.UTC)
 		group := "mygroup"
 
@@ -109,22 +115,26 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 	t.Run("without combinations of since and resourceTypes", func(t *testing.T) {
 		tests := []struct {
 			name          string
-			resourceTypes []ResourceType
+			resourceTypes []cpb.ResourceTypeCode_Value
 			since         time.Time
 		}{
 			{
-				name:          "with empty since",
-				resourceTypes: AllResourceTypes,
-				since:         time.Time{},
+				name: "with empty since",
+				resourceTypes: []cpb.ResourceTypeCode_Value{
+					cpb.ResourceTypeCode_PATIENT,
+					cpb.ResourceTypeCode_COVERAGE,
+					cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+				},
+				since: time.Time{},
 			},
 			{
 				name:          "with empty resource types",
-				resourceTypes: []ResourceType{},
+				resourceTypes: nil,
 				since:         time.Unix(0, 1233810057012345600),
 			},
 			{
 				name:          "with both empty resource types and since",
-				resourceTypes: []ResourceType{},
+				resourceTypes: nil,
 				since:         time.Time{},
 			},
 		}
@@ -172,9 +182,9 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		defer server.Close()
 
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.StartBulkDataExport(AllResourceTypes, time.Time{}, ExportGroupAll)
+		_, err := cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
 		if !errors.Is(err, ErrorGreaterThanOneContentLocation) {
-			t.Errorf("StartBulkDataExport(%v, %v) unexpected underlying error got: %v want: %v", AllResourceTypes, time.Time{}, err, ErrorGreaterThanOneContentLocation)
+			t.Errorf("StartBulkDataExport(nil, %v) unexpected underlying error got: %v want: %v", time.Time{}, err, ErrorGreaterThanOneContentLocation)
 		}
 	})
 }
@@ -265,10 +275,10 @@ func TestClient_GetJobStatus(t *testing.T) {
 		if got, want := len(jobStatus.ResultURLs), 1; got != want {
 			t.Errorf("GetJobStatus(%v) unexpected number of ResultURLs: got: %d, want: %d", jobStatusURL, got, want)
 		}
-		if _, ok := jobStatus.ResultURLs[Patient]; !ok {
+		if _, ok := jobStatus.ResultURLs[cpb.ResourceTypeCode_PATIENT]; !ok {
 			t.Errorf("GetJobStatus(%v) ResultURLs no value for key Patient", jobStatusURL)
 		}
-		if got, want := jobStatus.ResultURLs[Patient][0], expectedURL; got != want {
+		if got, want := jobStatus.ResultURLs[cpb.ResourceTypeCode_PATIENT][0], expectedURL; got != want {
 			t.Errorf("GetJobStatus(%v) ResultURLs returned unexpected value for key Patient: got %s, want %s", jobStatusURL, got, want)
 		}
 		if got, want := jobStatus.TransactionTime, expectedTransactionTime; !got.Equal(want) {
@@ -301,11 +311,11 @@ func TestClient_GetJobStatus(t *testing.T) {
 		if !jobStatus.IsComplete {
 			t.Errorf("GetJobStatus(%v) got incomplete JobStatus, expected complete", jobStatusURL)
 		}
-		expectedMap := map[ResourceType][]string{
-			Patient:              {"url_1", "url_2", "url_3"},
-			Coverage:             {"url_4"},
-			ExplanationOfBenefit: {"url_5", "url_6"},
-			OperationOutcome:     {"url_7", "url_8"},
+		expectedMap := map[cpb.ResourceTypeCode_Value][]string{
+			cpb.ResourceTypeCode_PATIENT:                {"url_1", "url_2", "url_3"},
+			cpb.ResourceTypeCode_COVERAGE:               {"url_4"},
+			cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT: {"url_5", "url_6"},
+			cpb.ResourceTypeCode_OPERATION_OUTCOME:      {"url_7", "url_8"},
 		}
 		if diff := cmp.Diff(expectedMap, jobStatus.ResultURLs, cmpopts.SortMaps(func(k1, k2 string) bool { return k1 < k2 })); diff != "" {
 			t.Errorf("GetJobStatus(%v) returned unexpected diff (-want +got):\n%s", jobStatusURL, diff)
@@ -431,13 +441,14 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 
 	t.Run("valid cases", func(t *testing.T) {
 		jobStatusURLSuffix := "/jobs/20"
-		wantResource := Patient
+		wantResource := cpb.ResourceTypeCode_PATIENT
+		resourceName := "Patient"
 		wantResultURL := "url"
 		wantProgress := 60
 		inProgressJobStatus := JobStatus{IsComplete: false, PercentComplete: wantProgress}
 		completeJobStatus := JobStatus{
 			IsComplete:      true,
-			ResultURLs:      map[ResourceType][]string{wantResource: []string{wantResultURL}},
+			ResultURLs:      map[cpb.ResourceTypeCode_Value][]string{wantResource: []string{wantResultURL}},
 			TransactionTime: time.Date(2020, 9, 15, 17, 53, 11, 476000000, time.UTC)}
 
 		cases := []struct {
@@ -483,7 +494,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 					if counter.count >= tc.completeAfterNChecks {
 						// Write out the completed result
 						w.WriteHeader(http.StatusOK)
-						w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantResultURL)))
+						w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", resourceName, wantResultURL)))
 					} else {
 						// Write out in progress result
 						w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", wantProgress)}
@@ -519,11 +530,12 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			called bool
 		}
 		jobStatusURLSuffix := "/jobs/20"
-		wantResource := Patient
+		wantResource := cpb.ResourceTypeCode_PATIENT
+		resourceName := "Patient"
 		wantURL := "url"
 		completeJobStatus := JobStatus{
 			IsComplete:      true,
-			ResultURLs:      map[ResourceType][]string{wantResource: []string{wantURL}},
+			ResultURLs:      map[cpb.ResourceTypeCode_Value][]string{wantResource: []string{wantURL}},
 			TransactionTime: time.Date(2020, 9, 15, 17, 53, 11, 476000000, time.UTC)}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -550,7 +562,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			}
 			// Write out the completed result
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", wantResource, wantURL)))
+			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", resourceName, wantURL)))
 		}))
 		jobStatusURL := server.URL + jobStatusURLSuffix
 
