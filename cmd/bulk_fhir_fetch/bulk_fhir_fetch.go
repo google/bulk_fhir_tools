@@ -163,7 +163,11 @@ func mainWrapper(cfg mainWrapperConfig) error {
 			log.Errorf("error while checking the jobStatus: %v", monitorResult.Error)
 		}
 		if !monitorResult.Status.IsComplete {
-			log.Infof("BCDA Export job pending, progress: %d\n", monitorResult.Status.PercentComplete)
+			if monitorResult.Status.PercentComplete >= 0 {
+				log.Infof("BCDA Export job pending, progress: %d", monitorResult.Status.PercentComplete)
+			} else {
+				log.Info("BCDA Export job pending, progress unknown")
+			}
 		}
 	}
 

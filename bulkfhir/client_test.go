@@ -199,18 +199,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("unexpected number of X-Progress", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 60), fmt.Sprintf("(%d%%)", 160)}
-			w.WriteHeader(http.StatusAccepted)
-		}))
-		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.JobStatus(server.URL + "/some/url")
-		if !errors.Is(err, ErrorUnexpectedNumberOfXProgress) {
-			t.Errorf("JobStatus returned unexpected underlying error. got: %v, want: %v", err, ErrorUnexpectedNumberOfXProgress)
-		}
-	})
-
 	t.Run("valid request", func(t *testing.T) {
 		jobID := "id"
 
@@ -320,8 +308,24 @@ func TestClient_GetJobStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid progress", func(t *testing.T) {
+	t.Run("unexpected number of X-Progress", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 60), fmt.Sprintf("(%d%%)", 160)}
+			w.WriteHeader(http.StatusAccepted)
+		}))
+		jobStatusURL := server.URL
 
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
+		if err != nil {
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
+		}
+		if jobStatus.PercentComplete != -1 {
+			t.Errorf("GetJobStatus(%v) returned unexpected progress; got %d, want -1", jobStatusURL, jobStatus.PercentComplete)
+		}
+	})
+
+	t.Run("invalid progress", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header()["X-Progress"] = []string{"invalid"}
 			w.WriteHeader(http.StatusAccepted)
@@ -329,9 +333,50 @@ func TestClient_GetJobStatus(t *testing.T) {
 		jobStatusURL := server.URL
 
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.JobStatus(jobStatusURL)
-		if err != ErrorUnableToParseProgress {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: got: %v, want: %v", err, jobStatusURL, ErrorUnableToParseProgress)
+		jobStatus, err := cl.JobStatus(jobStatusURL)
+		if err != nil {
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
+		}
+		if jobStatus.PercentComplete != -1 {
+			t.Errorf("GetJobStatus(%v) returned unexpected progress; got %d, want -1", jobStatusURL, jobStatus.PercentComplete)
+		}
+	})
+
+	t.Run("with numeric Retry-After", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header()["Retry-After"] = []string{"120"}
+			w.WriteHeader(http.StatusAccepted)
+		}))
+		jobStatusURL := server.URL
+
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
+		if err != nil {
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
+		}
+		if jobStatus.RetryAfter != 120*time.Second {
+			t.Errorf("GetJobStatus(%v) returned unexpected Retry-After; got %s, want %s", jobStatusURL, jobStatus.RetryAfter, 120*time.Second)
+		}
+	})
+
+	t.Run("with date Retry-After", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header()["Retry-After"] = []string{time.Now().Add(120 * time.Second).Format(time.RFC1123)}
+			w.WriteHeader(http.StatusAccepted)
+		}))
+		jobStatusURL := server.URL
+
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
+		jobStatus, err := cl.JobStatus(jobStatusURL)
+		if err != nil {
+			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
+		}
+		delta := jobStatus.RetryAfter - 120*time.Second
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta > time.Second {
+			t.Errorf("GetJobStatus(%v) returned unexpected Retry-After; got %s, want approx %s", jobStatusURL, jobStatus.RetryAfter, 120*time.Second)
 		}
 	})
 

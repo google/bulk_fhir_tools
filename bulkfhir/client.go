@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/golang/glog"
 	"github.com/google/medical_claims_tools/fhir"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -37,9 +38,6 @@ import (
 var (
 	// ErrorUnimplemented indicates that this method is currently unimplemented.
 	ErrorUnimplemented = errors.New("method not implemented yet")
-	// ErrorUnableToParseProgress is an error returned when GetJobStatus is unable
-	// to parse the progress in the server response.
-	ErrorUnableToParseProgress = errors.New("unable to parse progress out of X-Progress header")
 	// ErrorUnauthorized indicates that the server considers this client
 	// unauthorized. While authenticators should renew credentials automatically
 	// if required, time-of-check-to-time-of-use may mean that this error is still
@@ -192,10 +190,52 @@ func (c *Client) StartBulkDataExport(types []cpb.ResourceTypeCode_Value, since t
 type JobStatus struct {
 	IsComplete      bool
 	PercentComplete int
+	RetryAfter      time.Duration
 	// ResultURLs holds the final NDJSON URLs for the job by resource type (if the job is complete).
 	ResultURLs map[cpb.ResourceTypeCode_Value][]string
 	// Indicates the FHIR server time when the bulk data export was processed.
 	TransactionTime time.Time
+}
+
+func getProgress(resp *http.Response) int {
+	// Job is still pending, check X-Progress header for progress information.
+	p := resp.Header.Values(xProgress)
+	if len(p) != 1 {
+		if len(p) > 1 {
+			log.Infof("expected at most one X-Progress header value; got %d", len(p))
+		}
+		return -1
+	}
+	match := progressREGEX.FindStringSubmatch(p[0])
+	if len(match) == 0 {
+		log.Infof("unable to parse progress out of X-Progress header")
+		return -1
+	}
+	progress, err := strconv.Atoi(match[1])
+	if err != nil {
+		log.Infof("unable to parse progress out of X-Progress header: %v", err)
+		return -1
+	}
+	return progress
+}
+
+func getRetryAfter(resp *http.Response) time.Duration {
+	// Job is still pending, check X-Progress header for progress information.
+	h := resp.Header.Values("Retry-After")
+	if len(h) != 1 {
+		if len(h) > 1 {
+			log.Infof("expected at most one Retry-After header value; got %d", len(h))
+		}
+		return 0
+	}
+	if retryAfterSeconds, err := strconv.Atoi(h[0]); err == nil {
+		return time.Duration(retryAfterSeconds) * time.Second
+	}
+	if retryAfterTime, err := time.Parse(time.RFC1123, h[0]); err == nil {
+		return retryAfterTime.Sub(time.Now())
+	}
+	log.Infof("Could not parse Retry-After header %q as date or number of seconds", h[0])
+	return 0
 }
 
 // JobStatus retrieves the current JobStatus via the bulk fhir API for the
@@ -213,20 +253,11 @@ func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
-		// Job is still pending, check X-Progress header for progress information.
-		p := resp.Header.Values(xProgress)
-		if len(p) != 1 {
-			return JobStatus{IsComplete: false}, fmt.Errorf("one X-Progress header value expected. Instead got: %d %w", len(p), ErrorUnexpectedNumberOfXProgress)
-		}
-		match := progressREGEX.FindStringSubmatch(p[0])
-		if len(match) == 0 {
-			return JobStatus{IsComplete: false}, ErrorUnableToParseProgress
-		}
-		progress, err := strconv.Atoi(match[1])
-		if err != nil {
-			return JobStatus{IsComplete: false}, err
-		}
-		return JobStatus{IsComplete: false, PercentComplete: progress}, nil
+		return JobStatus{
+			IsComplete:      false,
+			PercentComplete: getProgress(resp),
+			RetryAfter:      getRetryAfter(resp),
+		}, nil
 
 	case http.StatusOK:
 		// Job is finished, NDJSON is ready for download.
@@ -298,7 +329,12 @@ func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time
 			}
 
 			if !jobStatus.IsComplete {
-				time.Sleep(checkPeriod)
+				if jobStatus.RetryAfter > 0 {
+					log.Infof("Server requests that we retry after %s", jobStatus.RetryAfter)
+					time.Sleep(jobStatus.RetryAfter)
+				} else {
+					time.Sleep(checkPeriod)
+				}
 			}
 		}
 		if !jobStatus.IsComplete {
