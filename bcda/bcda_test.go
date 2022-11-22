@@ -70,7 +70,6 @@ func TestNewClient(t *testing.T) {
 					correctAuthCalled.Lock()
 					correctAuthCalled.called = true
 					correctAuthCalled.Unlock()
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case wantBulkDataExportEndpoint:
 					correctBulkDataExportCalled.Lock()

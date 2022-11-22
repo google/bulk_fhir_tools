@@ -110,7 +110,6 @@ func TestHTTPBasicOAuthAuthenticator_AddAuthenticationToRequest(t *testing.T) {
 					t.Errorf("Authenticate(%s, %s) did not send expected Accept header. got: %v, want: %v", clientID, clientSecret, got, expectedAcceptValue)
 				}
 
-				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"access_token": "123", "expires_in": 1200}`))
 			}))
 			defer server.Close()
@@ -219,7 +218,6 @@ func TestHTTPBasicOAuthAuthenticator_AuthenticateOnlyIfNecessary(t *testing.T) {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				counter++
-				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(fmt.Sprintf(tc.responseTemplate, counter)))
 			}))
 			defer server.Close()
@@ -390,7 +388,6 @@ func TestJWTOAuthAuthenticator_AddAuthenticationToRequest(t *testing.T) {
 					t.Errorf("Authenticate() reused JWT ID %q", claims.Id)
 				}
 
-				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"access_token": "123", "expires_in": 1200}`))
 			}))
 			defer server.Close()
@@ -501,7 +498,6 @@ func TestJWTOAuthAuthenticator_AuthenticateOnlyIfNecessary(t *testing.T) {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				counter++
-				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(fmt.Sprintf(tc.responseTemplate, counter)))
 			}))
 			defer server.Close()

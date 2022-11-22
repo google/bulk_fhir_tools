@@ -216,13 +216,10 @@ func TestMainWrapper(t *testing.T) {
 			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case file1URLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write(file1Data)
 				case file2URLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write(file2Data)
 				case file3URLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write(file3Data)
 				default:
 					w.WriteHeader(http.StatusBadRequest)
@@ -237,7 +234,6 @@ func TestMainWrapper(t *testing.T) {
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 					exportEndpointCalled.Increment()
@@ -256,7 +252,6 @@ func TestMainWrapper(t *testing.T) {
 					w.Header()["Content-Location"] = []string{jobStatusURL}
 					w.WriteHeader(http.StatusAccepted)
 				case expectedJobURLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
 				default:
 					t.Errorf("unexpected request to bcda server: %s", req.URL.Path)
@@ -455,7 +450,6 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	// the jobsEndpoint response in the bcdaServer that includes a URL for the
 	// bcdaResourceServer in it.
 	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Write(file1Data)
 	}))
 	defer bcdaResourceServer.Close()
@@ -465,7 +459,6 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/auth/token":
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			// Check that since is empty
@@ -479,7 +472,6 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 
 			w.WriteHeader(http.StatusAccepted)
 		case jobsEndpoint:
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -545,7 +537,6 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	// the jobsEndpoint response in the bcdaServer that includes a URL for the
 	// bcdaResourceServer in it.
 	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Write(file1Data)
 	}))
 	defer bcdaResourceServer.Close()
@@ -559,7 +550,6 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 		switch req.URL.Path {
 		case "/auth/token":
 			authCalled.Increment()
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 
@@ -573,7 +563,6 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 				return
 			}
 
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}, {\"type\": \"Coverage\", \"url\": \"%s/data/20.ndjson\"}, {\"type\": \"ExplanationOfBenefit\", \"url\": \"%s/data/30.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, bcdaResourceServer.URL, bcdaResourceServer.URL, serverTransactionTime)))
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -668,7 +657,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 					w.WriteHeader(tc.httpErrorToRetrun)
 					return
 				}
-				w.WriteHeader(http.StatusOK)
 				w.Write(file1Data)
 			}))
 			defer bcdaResourceServer.Close()
@@ -679,7 +667,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				switch req.URL.Path {
 				case "/auth/token":
 					authCalled.Increment()
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 
@@ -687,7 +674,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 
 					w.WriteHeader(http.StatusAccepted)
 				case jobURLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 				default:
 					w.WriteHeader(http.StatusBadRequest)
@@ -768,7 +754,6 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			// the jobsEndpoint response in the bcdaServer that includes a URL for the
 			// bcdaResourceServer in it.
 			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				w.WriteHeader(http.StatusOK)
 				w.Write(file1Data)
 			}))
 			defer bcdaResourceServer.Close()
@@ -776,7 +761,6 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				switch req.URL.Path {
 				case "/auth/token":
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 				case exportEndpoint:
 					// Check that since is empty
@@ -790,7 +774,6 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 
 					w.WriteHeader(http.StatusAccepted)
 				case jobStatusURLSuffix:
-					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 				default:
 					w.WriteHeader(http.StatusBadRequest)
@@ -863,7 +846,6 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	// the jobsEndpoint response in the bcdaServer that includes a URL for the
 	// bcdaResourceServer in it.
 	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Write(file1Data)
 	}))
 	defer bcdaResourceServer.Close()
@@ -872,13 +854,11 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/auth/token":
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			w.Header()["Content-Location"] = []string{jobStatusURL}
 			w.WriteHeader(http.StatusAccepted)
 		case jobStatusURLSuffix:
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -1025,7 +1005,6 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 	// the jobsEndpoint response in the bulkFHIRServer that includes a URL for the
 	// bulkFHIRResourceServer in it.
 	bulkFHIRResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Write(file1Data)
 	}))
 	defer bulkFHIRResourceServer.Close()
@@ -1043,7 +1022,6 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 			if diff := cmp.Diff(splitScopes, scopes, cmpopts.SortSlices(func(a, b string) bool { return a > b })); diff != "" {
 				t.Errorf("Authenticate got invalid scopes. diff: %s", diff)
 			}
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			// Check that since is empty
@@ -1057,7 +1035,6 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 
 			w.WriteHeader(http.StatusAccepted)
 		case jobStatusURLSuffix:
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bulkFHIRResourceServer.URL, serverTransactionTime)))
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -1128,7 +1105,6 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	// the jobsEndpoint response in the bcdaServer that includes a URL for the
 	// bcdaResourceServer in it.
 	bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Write(file1Data)
 	}))
 	defer bcdaResourceServer.Close()
@@ -1137,13 +1113,11 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/auth/token":
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
 		case exportEndpoint:
 			w.Header()["Content-Location"] = []string{jobStatusURL}
 			w.WriteHeader(http.StatusAccepted)
 		case jobStatusURLSuffix:
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -1163,7 +1137,6 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		switch req.URL.Path {
 		case requestSinceURL:
 			requestsSince = true
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(since))
 		case uploadSinceURL:
 			uploadsNewSince = true
@@ -1175,7 +1148,6 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 				t.Errorf(
 					"gcs server unexpected new since data; got: %s, want: %s", data, serverTransactionTime)
 			}
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("{}"))
 		default:
 			w.WriteHeader(http.StatusBadRequest)

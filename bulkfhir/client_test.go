@@ -260,7 +260,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 		expectedURL := "url"
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"%s\"}", expectedResourceType, expectedURL, transactionTime)))
-			w.WriteHeader(http.StatusOK)
 		}))
 		jobStatusURL := server.URL
 
@@ -299,7 +298,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 												{"type": "OperationOutcome","url": "url_8"}]}`
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(jsonResponse))
-			w.WriteHeader(http.StatusOK)
 		}))
 		jobStatusURL := server.URL
 
@@ -340,7 +338,6 @@ func TestClient_GetJobStatus(t *testing.T) {
 	t.Run("invalid transaction time", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(`{"output": [{"type": "Patient", "url": "url"}], "transactionTime" : "2013-12-09T11:00Z"}`))
-			w.WriteHeader(http.StatusOK)
 		}))
 		jobStatusURL := server.URL
 
@@ -392,7 +389,6 @@ func TestClient_GetData(t *testing.T) {
 				t.Errorf("GetData(%v) made request with unexpected path. got: %v, want: %v", req.URL.String(), req.URL.Path, expectedPath)
 			}
 
-			w.WriteHeader(http.StatusOK)
 			w.Write(expectedResponse)
 		}))
 
@@ -493,7 +489,6 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 					counter.count++
 					if counter.count >= tc.completeAfterNChecks {
 						// Write out the completed result
-						w.WriteHeader(http.StatusOK)
 						w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", resourceName, wantResultURL)))
 					} else {
 						// Write out in progress result
@@ -561,7 +556,6 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 				return
 			}
 			// Write out the completed result
-			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"%s\", \"url\": \"%s\"}], \"transactionTime\": \"2020-09-15T17:53:11.476Z\"}", resourceName, wantURL)))
 		}))
 		jobStatusURL := server.URL + jobStatusURLSuffix
