@@ -145,7 +145,7 @@ func (u *Uploader) DoneUploading() {
 func (u *Uploader) uploadWorker() {
 	c, err := NewClient(context.Background(), u.fhirStoreEndpoint)
 	if err != nil {
-		log.Fatalf("error initializing FHIR store client: %v", err)
+		log.Exitf("error initializing FHIR store client: %v", err)
 	}
 
 	for fhirJSON := range u.fhirJSONs {
@@ -166,7 +166,7 @@ func (u *Uploader) uploadWorker() {
 func (u *Uploader) uploadBatchWorker() {
 	c, err := NewClient(context.Background(), u.fhirStoreEndpoint)
 	if err != nil {
-		log.Fatalf("error initializing FHIR store client: %v", err)
+		log.Exitf("error initializing FHIR store client: %v", err)
 	}
 
 	fhirBatchBuffer := make([][]byte, u.batchSize)

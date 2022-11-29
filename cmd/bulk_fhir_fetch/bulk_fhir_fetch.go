@@ -101,7 +101,7 @@ const (
 func main() {
 	flag.Parse()
 	if err := mainWrapper(buildMainWrapperConfig()); err != nil {
-		log.Fatal(err)
+		log.Exit(err)
 	}
 }
 
