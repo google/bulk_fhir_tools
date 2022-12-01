@@ -210,7 +210,11 @@ func (p *Pipeline) writeToSinks(ctx context.Context, resource ResourceWrapper) e
 // Pipelines do not apply any parallel processing. Resources pass through each
 // processing step sequentially, and are written to each sink sequentially; this
 // function returns only when the processor and sinks return. If a processor or
-// sink needs to perform heavy lifting, it may use parallelism internally.
+// sink needs to perform heavy lifting, it may use parallelism internally. An
+// example could be a Sink that places work on an internal queue to handle
+// concurrently and then returns immediately to not block subsquent pipeline
+// processing. Such a Sink would ensure that all work on its internal queue is
+// complete before returning in Finalize().
 //
 // It is not safe to call this function from multiple Goroutines.
 func (p *Pipeline) Process(ctx context.Context, resourceType cpb.ResourceTypeCode_Value, sourceURL string, json []byte) error {
