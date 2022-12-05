@@ -38,6 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/medical_claims_tools/bulkfhir"
+	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
 )
 
@@ -135,7 +136,7 @@ func TestMainWrapper(t *testing.T) {
 			rectify:           true,
 			enableFHIRStore:   true,
 			fhirStoreFailures: true,
-			wantError:         errUploadFailures,
+			wantError:         processing.ErrUploadFailures,
 		},
 		{
 			name:                 "FHIRStoreUploadFailuresWithNoFailFlagBCDAV2",
@@ -152,7 +153,7 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore:                   true,
 			fhirStoreFailures:                 true,
 			enableFHIRStoreUploadErrorFileDir: true,
-			wantError:                         errUploadFailures,
+			wantError:                         processing.ErrUploadFailures,
 		},
 		{
 			name:                              "ErrorFileWithSuccessfulUploadBCDAV2",
@@ -362,7 +363,7 @@ func TestMainWrapper(t *testing.T) {
 
 			// Run mainWrapper:
 			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+				t.Errorf("mainWrapper(%v) want error %v; got %v", cfg, tc.wantError, err)
 			}
 
 			// Check upload errors file if necessary:
@@ -884,6 +885,9 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		if !bytes.Contains(data, file1Data) {
 			t.Errorf("gcs server unexpected data: got: %s, want: %s", data, file1Data)
 		}
+		// We have to write a response, else closing the file returns an EOF error,
+		// but the response doesn't actually need to contain anything.
+		w.Write([]byte(`{}`))
 	}))
 
 	importCalled := false

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,10 +33,9 @@ import (
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
+	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/gcs"
-	"github.com/google/medical_claims_tools/internal/counter"
-	"github.com/google/medical_claims_tools/internal/iohelpers"
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
@@ -73,7 +73,6 @@ var (
 
 var (
 	errInvalidSince            = errors.New("invalid since timestamp")
-	errUploadFailures          = errors.New("fhir store upload failures")
 	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
 	errMustSpecifyGCSBucket    = errors.New("if fhir_store_enable_gcs_based_upload=true, fhir_store_gcs_based_upload_bucket must be set")
 )
@@ -107,8 +106,7 @@ func main() {
 
 // mainWrapper allows for easier testing of the main function.
 func mainWrapper(cfg mainWrapperConfig) error {
-	// Init counters
-	fhirStoreUploadErrorCounter := counter.New()
+	ctx := context.Background()
 
 	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
@@ -178,80 +176,77 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	log.Infof("BCDA Job Finished. Transaction Time: %v", fhir.ToFHIRInstant(jobStatus.TransactionTime))
 	log.Infof("Begin BCDA data download and write out to disk.")
-	if cfg.enableFHIRStore {
-		log.Infof("Data will also be uploaded to FHIR store based on provided parmaters.")
+
+	var processors []processing.Processor
+	if cfg.rectify {
+		processors = append(processors, processing.NewBCDARectifyProcessor())
 	}
 
-	for r, urls := range jobStatus.ResultURLs {
-		resourceName, err := bulkfhir.ResourceTypeCodeToName(r)
+	var sinks []processing.Sink
+	if cfg.outputPrefix != "" {
+		directory, filePrefix := filepath.Split(cfg.outputPrefix)
+		ndjsonSink, err := processing.NewNDJSONSink(ctx, directory, filePrefix)
 		if err != nil {
-			return err
+			return fmt.Errorf("error making ndjson sink: %v", err)
 		}
+		sinks = append(sinks, ndjsonSink)
+	}
+	if cfg.enableFHIRStore {
+		log.Infof("Data will also be uploaded to FHIR store based on provided parameters.")
+		fhirStoreSink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
+			FHIRStoreEndpoint:    cfg.fhirStoreEndpoint,
+			FHIRStoreID:          cfg.fhirStoreID,
+			FHIRProjectID:        cfg.fhirStoreGCPProject,
+			FHIRDatasetID:        cfg.fhirStoreGCPDatasetID,
+			FHIRLocation:         cfg.fhirStoreGCPLocation,
+			NoFailOnUploadErrors: cfg.noFailOnUploadErrors,
 
-		for i, url := range urls {
-			filename := fmt.Sprintf("%s_%d.ndjson", resourceName, i)
+			UseGCSUpload: cfg.fhirStoreEnableGCSBasedUpload,
 
+			BatchUpload:         cfg.fhirStoreEnableBatchUpload,
+			BatchSize:           cfg.fhirStoreBatchUploadSize,
+			MaxWorkers:          cfg.maxFHIRStoreUploadWorkers,
+			ErrorFileOutputPath: cfg.fhirStoreUploadErrorFileDir,
+
+			GCSEndpoint:         cfg.gcsEndpoint,
+			GCSBucket:           cfg.fhirStoreGCSBasedUploadBucket,
+			GCSImportJobTimeout: gcsImportJobTimeout,
+			GCSImportJobPeriod:  gcsImportJobPeriod,
+			TransactionTime:     jobStatus.TransactionTime,
+		})
+		if err != nil {
+			return fmt.Errorf("error making FHIR Store sink: %v", err)
+		}
+		sinks = append(sinks, fhirStoreSink)
+	}
+
+	pipeline, err := processing.NewPipeline(processors, sinks)
+	if err != nil {
+		return fmt.Errorf("error making output pipeline: %v", err)
+	}
+
+	for resourceType, urls := range jobStatus.ResultURLs {
+		for _, url := range urls {
 			r, err := getDataOrExit(cl, url, cfg.clientID, cfg.clientSecret)
 			if err != nil {
 				return err
 			}
 			defer r.Close()
-			if cfg.rectify {
-				rectifyAndWrite(r, filename, cfg, jobStatus.TransactionTime, fhirStoreUploadErrorCounter)
-			} else {
-				writeData(r, cfg.outputPrefix, filename)
-			}
-		}
-	}
-
-	// After files are written, trigger FHIR Store GCS import if needed.
-	if cfg.fhirStoreEnableGCSBasedUpload && cfg.enableFHIRStore {
-		fc, err := fhirstore.NewClient(context.Background(), cfg.fhirStoreEndpoint)
-		if err != nil {
-			return err
-		}
-
-		gcsURI := fmt.Sprintf("gs://%s/%s/**", cfg.fhirStoreGCSBasedUploadBucket, fhir.ToFHIRInstant(jobStatus.TransactionTime))
-		log.Infof("Starting the import job from GCS location where FHIR data was saved: %s", gcsURI)
-		opName, err := fc.ImportFromGCS(
-			gcsURI,
-			cfg.fhirStoreGCPProject,
-			cfg.fhirStoreGCPLocation,
-			cfg.fhirStoreGCPDatasetID,
-			cfg.fhirStoreID)
-
-		if err != nil {
-			return err
-		}
-
-		isDone := false
-		deadline := time.Now().Add(gcsImportJobTimeout)
-		for !isDone && time.Now().Before(deadline) {
-			time.Sleep(gcsImportJobPeriod)
-			log.Infof("GCS Import Job still pending...")
-
-			isDone, err = fc.CheckGCSImportStatus(opName)
-			if err != nil {
-				log.Errorf("Error reported from the GCS FHIR store Import Job: %s", err)
-				if !cfg.noFailOnUploadErrors {
-					return fmt.Errorf("error from the GCS FHIR Store Import Job: %w", err)
+			s := bufio.NewScanner(r)
+			s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
+			for s.Scan() {
+				if err := pipeline.Process(ctx, resourceType, url, s.Bytes()); err != nil {
+					return err
 				}
-				break
+			}
+			if err := s.Err(); err != nil {
+				return err
 			}
 		}
-
-		if !isDone {
-			return errors.New("fhir store import via GCS timed out")
-		}
-		log.Infof("FHIR Store import is complete!")
 	}
 
-	// Check failure counters.
-	if errCnt := fhirStoreUploadErrorCounter.CloseAndGetCount(); errCnt > 0 {
-		log.Warningf("non-zero FHIR Store Upload Errors: %d", errCnt)
-		if !cfg.noFailOnUploadErrors {
-			return fmt.Errorf("non-zero FHIR store upload errors (check logs for details): %d %w", errCnt, errUploadFailures)
-		}
+	if err := pipeline.Finalize(ctx); err != nil {
+		return fmt.Errorf("failed to finalize output pipeline: %w", err)
 	}
 
 	// Write out since file time. This should only be written if there are no
@@ -308,111 +303,6 @@ func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.
 	}
 
 	return r, nil
-}
-
-func writeData(r io.Reader, outputPrefix, filename string) {
-	f, err := os.OpenFile(fmt.Sprintf("%s_%s", outputPrefix, filename), os.O_RDWR|os.O_CREATE, 0755)
-	if err != nil {
-		log.Exitf("Unable to create output file. Error: %v", err)
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, r)
-	if err != nil {
-		log.Exitf("Unable to copy data to output file. Error: %v", err)
-	}
-}
-
-// rectifyAndWrite is responsible for reading FHIR resources from the NDJSON
-// reader provided, rectifying them, optionally writing them to disk and/or GCS,
-// and uploading them directly to GCS if appropiate. This is done "all at once"
-// for each FHIR resource read from the reader.
-func rectifyAndWrite(r io.Reader, filename string, cfg mainWrapperConfig, since time.Time, fhirStoreUploadErrorCounter *counter.Counter) {
-	filesWriter := getFilesWriter(filename, cfg, since)
-	defer func() {
-		if err := filesWriter.Close(); err != nil {
-			log.Errorf("error when closing the file writers: %v", err)
-		}
-	}()
-
-	uploader, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
-		FHIRStoreEndpoint:   cfg.fhirStoreEndpoint,
-		FHIRStoreID:         cfg.fhirStoreID,
-		FHIRProjectID:       cfg.fhirStoreGCPProject,
-		FHIRLocation:        cfg.fhirStoreGCPLocation,
-		FHIRDatasetID:       cfg.fhirStoreGCPDatasetID,
-		MaxWorkers:          cfg.maxFHIRStoreUploadWorkers,
-		ErrorCounter:        fhirStoreUploadErrorCounter,
-		ErrorFileOutputPath: cfg.fhirStoreUploadErrorFileDir,
-		BatchUpload:         cfg.fhirStoreEnableBatchUpload,
-		BatchSize:           cfg.fhirStoreBatchUploadSize,
-	})
-
-	if err != nil {
-		log.Exitf("unable to init uploader: %v", err)
-	}
-
-	// indicates if the FHIRStore Uploader should be used. It shouldn't be used
-	// if using GCS based upload, as that is handled by triggering a sepearte
-	// batch import job.
-	shouldUseFHIRStoreUploader := cfg.enableFHIRStore && !cfg.fhirStoreEnableGCSBasedUpload
-
-	s := bufio.NewScanner(r)
-	s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
-	for s.Scan() {
-		fhirOut, err := fhir.RectifyBCDA(s.Bytes())
-		if err != nil {
-			log.Warningf("WARN: issue during rectification: %v, proceeding without rectification for this resource.", err)
-			// Override fhirOut to be the original un-rectified json.
-			fhirOut = s.Bytes()
-		}
-
-		// Add this FHIR resource to the queue to be written to FHIR Store via the
-		// Uploader API.
-		if shouldUseFHIRStoreUploader {
-			uploader.Upload(fhirOut)
-		}
-
-		if filesWriter != nil {
-			// We write with a newline because this is a newline delimited JSON file.
-			if _, err := filesWriter.Write(append(fhirOut, byte('\n'))); err != nil {
-				log.Exitf("issue during file write: %v", err)
-			}
-		}
-	}
-
-	// Since there is only one sender goroutine (this one), it should be safe to
-	// indicate we're done sending here, after we have finished sending all the
-	// work in the for loop above.
-	if shouldUseFHIRStoreUploader {
-		uploader.DoneUploading()
-		if err := uploader.Wait(); err != nil {
-			log.Warningf("error closing the uploader: %v", err)
-		}
-	}
-}
-
-func getFilesWriter(filename string, cfg mainWrapperConfig, since time.Time) io.WriteCloser {
-	multiFilesWriter := &iohelpers.MultiWriteCloser{}
-	if cfg.outputPrefix != "" {
-		w, err := os.OpenFile(fmt.Sprintf("%s_%s", cfg.outputPrefix, filename), os.O_RDWR|os.O_CREATE, 0755)
-		multiFilesWriter.Add(w)
-		if err != nil {
-			log.Exitf("Unable to create output file: %v", err)
-		}
-	}
-
-	if cfg.fhirStoreEnableGCSBasedUpload {
-		gcsClient, err := gcs.NewClient(cfg.fhirStoreGCSBasedUploadBucket, cfg.gcsEndpoint)
-		if err != nil {
-			log.Exitf("unable to create gcs client")
-		}
-
-		gcsWriter := gcsClient.GetFHIRFileWriter(filename, since)
-		multiFilesWriter.Add(gcsWriter)
-	}
-
-	return multiFilesWriter
 }
 
 func getBucketAndFilePathFromSince(sinceFile string) (bucketName, filePath string) {
