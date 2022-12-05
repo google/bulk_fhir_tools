@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -91,4 +92,22 @@ func (gcsClient Client) GetFileReader(ctx context.Context, fileName string) (io.
 	}
 	bkt := gcsClient.Bucket(gcsClient.bucketName)
 	return bkt.Object(fileName).NewReader(ctx)
+}
+
+// JoinPath is roughly equivalent to path/filepath.Join, except that it always
+// uses forward slashes regardless of platform (because GCS does not recognize
+// backslashes used by windows).
+//
+// Each path element backslashes converted to forward slashes, and has leading
+// and trailing slashes removed. Elements are then joined with forward slashes.
+//
+// Warning: this may not be fully compatible with how directory paths are
+// supposed to work, and should not be used except for writing to GCS. For
+// writing files to a local filesystem, use path/filepath.Join.
+func JoinPath(elems ...string) string {
+	var cleaned []string
+	for _, e := range elems {
+		cleaned = append(cleaned, strings.Trim(strings.ReplaceAll(e, `\`, `/`), `/`))
+	}
+	return strings.Join(cleaned, `/`)
 }

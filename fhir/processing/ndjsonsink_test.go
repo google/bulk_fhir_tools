@@ -15,7 +15,12 @@
 package processing_test
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,5 +110,60 @@ func TestNDJSONSink(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Note: the logic for the GCS variant is mostly the same as for the local file
+// variant, so this test is kept much simpler.
+func TestGCSNDJSONSink(t *testing.T) {
+	ctx := context.Background()
+
+	patient1 := []byte(`{"resourceType":"Patient","id":"PatientID1"}`)
+	bucketName := "bucket"
+	directory := "directory"
+	prefix := "prefix"
+
+	gcsWriteCalled := false
+
+	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fileWritePath := ("/upload/storage/v1/b/" +
+			bucketName + "/o?alt=json&name=" +
+			url.QueryEscape(directory+"/"+prefix+"_Patient_0.ndjson") +
+			"&prettyPrint=false&projection=full&uploadType=multipart")
+
+		if req.URL.String() != fileWritePath {
+			t.Errorf("gcs server got unexpected request. got: %v, want: %v", req.URL.String(), fileWritePath)
+		}
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("gcs server error reading body.")
+		}
+		if !bytes.Contains(data, patient1) {
+			t.Errorf("gcs server unexpected data: got: %s, want: %s", data, patient1)
+		}
+		gcsWriteCalled = true
+		// We have to write a response, else closing the file returns an EOF error,
+		// but the response doesn't actually need to contain anything.
+		w.Write([]byte(`{}`))
+	}))
+	defer gcsServer.Close()
+
+	sink, err := processing.NewGCSNDJSONSink(gcsServer.URL, bucketName, directory, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := processing.NewPipeline(nil, []processing.Sink{sink})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Process(ctx, cpb.ResourceTypeCode_PATIENT, "url1", patient1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Finalize(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if !gcsWriteCalled {
+		t.Error("expected data to be written to GCS")
 	}
 }

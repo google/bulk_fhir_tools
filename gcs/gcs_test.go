@@ -128,3 +128,43 @@ func TestGCSClientReadsDataFromGCS(t *testing.T) {
 	}
 
 }
+
+func TestJoinPath(t *testing.T) {
+	for _, tc := range []struct {
+		description string
+		elems       []string
+		want        string
+	}{
+		{
+			description: "single element",
+			elems:       []string{"foo"},
+			want:        "foo",
+		},
+		{
+			description: "simple multi element",
+			elems:       []string{"foo", "bar", "baz"},
+			want:        "foo/bar/baz",
+		},
+		{
+			description: "multi element with path pieces",
+			elems:       []string{"/foo/bar", "baz/", "/qux//"},
+			want:        "foo/bar/baz/qux",
+		},
+		{
+			description: "multi element with path pieces",
+			elems:       []string{"/foo/bar", "baz/", "/qux/xyzzy.txt"},
+			want:        "foo/bar/baz/qux/xyzzy.txt",
+		},
+		{
+			description: "multi element with backslashes",
+			elems:       []string{`foo\bar`, `baz\`, `\qux\xyzzy.txt`},
+			want:        "foo/bar/baz/qux/xyzzy.txt",
+		},
+	} {
+		t.Run(tc.description, func(t *testing.T) {
+			if got := JoinPath(tc.elems...); got != tc.want {
+				t.Errorf("JoinPaths(%#v) = %q; want %q", tc.elems, got, tc.want)
+			}
+		})
+	}
+}

@@ -23,9 +23,12 @@ import (
 	"path/filepath"
 
 	"github.com/google/medical_claims_tools/bulkfhir"
+	"github.com/google/medical_claims_tools/gcs"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
+
+type createFileFunc func(ctx context.Context, filename string) (io.WriteCloser, error)
 
 type fileKey struct {
 	resourceType cpb.ResourceTypeCode_Value
@@ -33,9 +36,10 @@ type fileKey struct {
 }
 
 type ndjsonSink struct {
-	files                 map[fileKey]io.WriteCloser
-	fileIndex             map[cpb.ResourceTypeCode_Value]int
-	directory, filePrefix string
+	files      map[fileKey]io.WriteCloser
+	fileIndex  map[cpb.ResourceTypeCode_Value]int
+	filePrefix string
+	createFile createFileFunc
 }
 
 // NewNDJSONSink creates a new Sink which writes resources to NDJSON files in
@@ -51,20 +55,54 @@ func NewNDJSONSink(ctx context.Context, directory, filePrefix string) (Sink, err
 	} else if !stat.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", directory)
 	}
+
+	// This closure captures the `directory` parameter.
+	createFile := func(ctx context.Context, filename string) (io.WriteCloser, error) {
+		filename = filepath.Join(directory, filename)
+		return os.Create(filename)
+	}
+
 	return &ndjsonSink{
 		files:      map[fileKey]io.WriteCloser{},
 		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
-		directory:  directory,
+		filePrefix: filePrefix,
+		createFile: createFile,
+	}, nil
+}
+
+// NewGCSNDJSONSink returns a Sink which writes NDJSON files to GCS. See
+// NewNDJSONSink for additional documentation.
+func NewGCSNDJSONSink(endpoint, bucket, directory, filePrefix string) (Sink, error) {
+	return newGCSNDJSONSink(endpoint, bucket, directory, filePrefix)
+}
+
+// newGCSNDJSONSink returns the raw ndjsonSink, so that it can be embedded in
+// gcsBasedFHIRStoreSink without a cast.
+func newGCSNDJSONSink(endpoint, bucket, directory, filePrefix string) (*ndjsonSink, error) {
+	gcsClient, err := gcs.NewClient(bucket, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// This closure captures the GCS client and the `directory` parameter.
+	createFile := func(ctx context.Context, filename string) (io.WriteCloser, error) {
+		return gcsClient.GetFileWriter(gcs.JoinPath(directory, filename)), nil
+	}
+
+	return &ndjsonSink{
+		files:      map[fileKey]io.WriteCloser{},
+		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
+		createFile: createFile,
 		filePrefix: filePrefix,
 	}, nil
 }
 
 func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (io.Writer, error) {
 	key := fileKey{resource.Type(), resource.SourceURL()}
-	w := ns.files[key]
-	if w != nil {
+	if w, ok := ns.files[key]; ok {
 		return w, nil
 	}
+
 	typeName, err := bulkfhir.ResourceTypeCodeToName(key.resourceType)
 	if err != nil {
 		return nil, err
@@ -75,8 +113,8 @@ func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (
 	if ns.filePrefix != "" {
 		filename = fmt.Sprintf("%s_%s", ns.filePrefix, filename)
 	}
-	filename = filepath.Join(ns.directory, filename)
-	w, err = os.Create(filename)
+
+	w, err := ns.createFile(ctx, filename)
 	if err != nil {
 		return nil, err
 	}
