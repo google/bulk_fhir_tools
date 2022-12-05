@@ -362,7 +362,7 @@ func TestMainWrapper(t *testing.T) {
 			}
 
 			// Run mainWrapper:
-			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
+			if err := mainWrapper(cfg); !(errors.Is(err, tc.wantError) || strings.Contains(err.Error(), tc.wantError.Error())) {
 				t.Errorf("mainWrapper(%v) want error %v; got %v", cfg, tc.wantError, err)
 			}
 

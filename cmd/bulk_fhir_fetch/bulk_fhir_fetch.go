@@ -22,14 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"flag"
 	log "github.com/golang/glog"
-	"cloud.google.com/go/storage"
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
@@ -141,14 +139,20 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 	}()
 
-	parsedSince, err := getSince(cfg.since, cfg.sinceFile, cfg.gcsEndpoint)
+	sinceStore, err := getTransactionTimeStore(cfg)
 	if err != nil {
 		return err
+	}
+	since, err := sinceStore.Load(ctx)
+	if err != nil {
+		// We match the text of errInvalidSince in tests; fmt.Errorf does not allow
+		// using multiple %w verbs.
+		return fmt.Errorf("%v: %w", errInvalidSince, err)
 	}
 
 	jobURL := cfg.pendingJobURL
 	if jobURL == "" {
-		jobURL, err = cl.StartBulkDataExport(bcda.ResourceTypes, parsedSince, bulkfhir.ExportGroupAll)
+		jobURL, err = cl.StartBulkDataExport(bcda.ResourceTypes, since, bulkfhir.ExportGroupAll)
 		if err != nil {
 			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
 		}
@@ -249,34 +253,8 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return fmt.Errorf("failed to finalize output pipeline: %w", err)
 	}
 
-	// Write out since file time. This should only be written if there are no
-	// errors during the fetch process.
-	if cfg.sinceFile != "" {
-		// Write since file to GCS if needed.
-		if strings.HasPrefix(cfg.sinceFile, "gs://") {
-			bucketName, filePath := getBucketAndFilePathFromSince(cfg.sinceFile)
-			gcsClient, err := gcs.NewClient(bucketName, cfg.gcsEndpoint)
-			if err != nil {
-				return err
-			}
-			sinceFileWriter := gcsClient.GetFileWriter(filePath)
-			sinceFileWriter.Write([]byte(fhir.ToFHIRInstant(jobStatus.TransactionTime)))
-			if err = sinceFileWriter.Close(); err != nil {
-				return err
-			}
-		} else {
-			f, err := os.OpenFile(cfg.sinceFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if err := f.Close(); err != nil {
-					log.Errorf("error when closing the file writer: %v", err)
-				}
-			}()
-
-			f.Write([]byte(fhir.ToFHIRInstant(jobStatus.TransactionTime) + "\n"))
-		}
+	if err := sinceStore.Store(ctx, jobStatus.TransactionTime); err != nil {
+		return fmt.Errorf("failed to store transaction timestamp: %v", err)
 	}
 
 	log.Info("bulk_fhir_fetch complete.")
@@ -305,90 +283,6 @@ func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.
 	return r, nil
 }
 
-func getBucketAndFilePathFromSince(sinceFile string) (bucketName, filePath string) {
-	rawFilePath := strings.TrimPrefix(sinceFile, "gs://")
-	splitPaths := strings.SplitN(rawFilePath, "/", 2)
-	bucketName, filePath = splitPaths[0], splitPaths[1]
-	return
-}
-
-func getSinceFromGCS(sinceFile, gcsEndpoint string) (time.Time, error) {
-	bucketName, remainingPath := getBucketAndFilePathFromSince(sinceFile)
-	gcsClient, err := gcs.NewClient(bucketName, gcsEndpoint)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("Error getting GCS client: (%s)", err)
-	}
-	reader, err := gcsClient.GetFileReader(context.Background(), remainingPath)
-	if err == storage.ErrObjectNotExist {
-		// If that GCS file has not been created, assume that this is the first time it has been
-		// called and return an empty time to fetch all data.
-		return time.Time{}, nil
-	} else if err != nil {
-		return time.Time{}, fmt.Errorf("Error getting GCS reader: (%s)", err)
-	}
-
-	b, err := io.ReadAll(reader)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("Error reading GCS reader: (%s)", err)
-	}
-	parsedSince, err := fhir.ParseFHIRInstant(string(b))
-	if err != nil {
-		return parsedSince, fmt.Errorf("Error parsing since file from GCS (%s)", err)
-	}
-	return parsedSince, nil
-
-}
-
-func getSince(since, sinceFile, gcsEndpoint string) (time.Time, error) {
-	parsedSince := time.Time{}
-	if since != "" && sinceFile != "" {
-		return parsedSince, errors.New("only one of since or since_file flags may be set (cannot set both)")
-	}
-
-	var err error
-	if since != "" {
-		parsedSince, err = fhir.ParseFHIRInstant(since)
-		if err != nil {
-			return parsedSince, fmt.Errorf("invalid since timestamp provided (%s), should be in form YYYY-MM-DDThh:mm:ss.sss+zz:zz %w", since, errInvalidSince)
-		}
-	}
-
-	if sinceFile != "" {
-
-		if strings.HasPrefix(sinceFile, "gs://") {
-			return getSinceFromGCS(sinceFile, gcsEndpoint)
-		}
-
-		if info, err := os.Stat(sinceFile); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
-			// There is no since information, since this is the first time fetch is being
-			// called on a new file or an empty file--so we return an empty time to fetch
-			// all data the first time.
-			return time.Time{}, nil
-		}
-
-		f, err := os.Open(sinceFile)
-		if err != nil {
-			return parsedSince, err
-		}
-		defer f.Close()
-
-		// TODO(b/213614828): if we expect extremely large since files in the future,
-		// we can make this more efficient by reading the file backwards (at the
-		// expense of more complex code).
-		s := bufio.NewScanner(f)
-		lastLine := ""
-		for s.Scan() {
-			lastLine = s.Text()
-		} // Scan through all lines of the file
-		parsedSince, err = fhir.ParseFHIRInstant(lastLine)
-		if err != nil {
-			return parsedSince, fmt.Errorf("invalid since timestamp provided (%s), should be in form YYYY-MM-DDThh:mm:ss.sss+zz:zz %w", lastLine, errInvalidSince)
-		}
-	}
-
-	return parsedSince, nil
-}
-
 // getBulkFHIRClient builds and returns the right kind of bulk fhir client to
 // use, based on the mainWrapperConfig. If generalized FHIR flags are set,
 // those are used, otherwise the bcda specific flags are used to make a
@@ -402,6 +296,32 @@ func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
 		return bulkfhir.NewClient(cfg.baseServerURL, authenticator)
 	}
 	return bcda.NewClient(cfg.bcdaServerURL, bcda.V2, cfg.clientID, cfg.clientSecret)
+}
+
+func getTransactionTimeStore(cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {
+	if cfg.since != "" && cfg.sinceFile != "" {
+		return nil, errors.New("only one of since or since_file flags may be set (cannot set both)")
+	}
+
+	if cfg.since != "" {
+		store, err := bulkfhir.NewInMemoryTransactionTimeStore(cfg.since)
+		if err != nil {
+			// We match the text of errInvalidSince in tests; fmt.Errorf does not
+			// allow using multiple %w verbs.
+			return nil, fmt.Errorf("%v: %w", errInvalidSince, err)
+		}
+		return store, nil
+	}
+
+	if strings.HasPrefix(cfg.sinceFile, "gs://") {
+		return bulkfhir.NewGCSTransactionTimeStore(cfg.gcsEndpoint, cfg.sinceFile)
+	}
+
+	if cfg.sinceFile != "" {
+		return bulkfhir.NewLocalFileTransactionTimeStore(cfg.sinceFile), nil
+	}
+
+	return bulkfhir.NewInMemoryTransactionTimeStore("")
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the
