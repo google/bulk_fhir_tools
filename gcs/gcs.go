@@ -18,15 +18,12 @@ package gcs
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/option"
-	"github.com/google/medical_claims_tools/fhir"
 )
 
 // DefaultCloudStorageEndpoint represents the default cloud storage API endpoint.
@@ -61,15 +58,6 @@ func NewClient(ctx context.Context, bucketName, endpointURL string) (Client, err
 	}
 	gcsClient := Client{endpointURL: endpointURL, bucketName: bucketName, Client: storageClient}
 	return gcsClient, err
-}
-
-// GetFHIRFileWriter returns a write closer that allows the user to write to a file named `fileName`
-// in the pre defined GCS bucket in a folder called `since`.
-// Closing the write closer will send the written data to GCS.
-func (gcsClient Client) GetFHIRFileWriter(ctx context.Context, fileName string, since time.Time) io.WriteCloser {
-	// Use the `since` date as the folder where the resource will be written to.
-	objName := fmt.Sprintf("%s/%s", fhir.ToFHIRInstant(since), fileName)
-	return gcsClient.GetFileWriter(ctx, objName)
 }
 
 // GetFileWriter returns a write closer that allows the user to write to a file named `fileName` in

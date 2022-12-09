@@ -23,28 +23,18 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/google/medical_claims_tools/fhir"
 )
 
 func TestGCSClientWritesResourceToGCS(t *testing.T) {
-	var timeExecuted = "2022-01-02"
 	var bucketID = "TestBucket"
-	var resourceName = "TestResource"
+	var resourceName = "directory/TestResource"
 	var resourceData = "testtest 2"
-
-	since, err := time.Parse("2006-01-02", timeExecuted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fhirSinceTime := fhir.ToFHIRInstant(since)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// Request to send the contents of the writer to GCS.
 		requestPath := ("/upload/storage/v1/b/" +
 			bucketID + "/o?alt=json&name=" +
-			url.QueryEscape(fhirSinceTime+"/"+resourceName) +
+			url.QueryEscape(resourceName) +
 			"&prettyPrint=false&projection=full&uploadType=multipart")
 
 		if req.URL.String() == requestPath {
@@ -73,7 +63,7 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 		t.Error("Unexpected error when getting NewClient: ", err)
 	}
 
-	writeCloser := gcsClient.GetFHIRFileWriter(ctx, resourceName, since)
+	writeCloser := gcsClient.GetFileWriter(ctx, resourceName)
 
 	// Write data piece by piece.
 	_, err = writeCloser.Write([]byte(resourceData[0:5]))
