@@ -184,7 +184,7 @@ func TestGCSTransactionTimeStore(t *testing.T) {
 
 	sinceFile := "gs://sinceBucket/sinceFile"
 
-	s, err := NewGCSTransactionTimeStore(gcsServer.URL, sinceFile)
+	s, err := NewGCSTransactionTimeStore(ctx, gcsServer.URL, sinceFile)
 	if err != nil {
 		t.Fatalf("unexpected error from NewGCSTransactionTimeStore(%q, %q)", gcsServer.URL, sinceFile)
 	}

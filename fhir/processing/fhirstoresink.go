@@ -160,7 +160,7 @@ type FHIRStoreSinkConfig struct {
 // either directly or via GCS.
 func NewFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
 	if cfg.UseGCSUpload {
-		ndjsonSink, err := newGCSNDJSONSink(cfg.GCSEndpoint, cfg.GCSBucket, fhir.ToFHIRInstant(cfg.TransactionTime), "" /* filePrefix */)
+		ndjsonSink, err := newGCSNDJSONSink(ctx, cfg.GCSEndpoint, cfg.GCSBucket, fhir.ToFHIRInstant(cfg.TransactionTime), "" /* filePrefix */)
 		if err != nil {
 			return nil, err
 		}
@@ -183,7 +183,7 @@ func NewFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, erro
 	}
 
 	errorCounter := counter.New()
-	uploader, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+	uploader, err := fhirstore.NewUploader(ctx, fhirstore.UploaderConfig{
 		FHIRStoreEndpoint:   cfg.FHIRStoreEndpoint,
 		FHIRStoreID:         cfg.FHIRStoreID,
 		FHIRProjectID:       cfg.FHIRProjectID,

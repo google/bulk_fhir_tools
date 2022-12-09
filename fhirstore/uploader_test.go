@@ -15,6 +15,7 @@
 package fhirstore_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -79,7 +80,7 @@ func TestUploader(t *testing.T) {
 			if tc.setFHIRErrorFileDir {
 				outputPrefix = t.TempDir()
 			}
-			u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+			u, err := fhirstore.NewUploader(context.Background(), fhirstore.UploaderConfig{
 				FHIRStoreEndpoint:   testServerURL,
 				FHIRProjectID:       fhirStoreProjectID,
 				FHIRLocation:        fhirStoreLocation,
@@ -149,7 +150,7 @@ func TestUploader_Batch(t *testing.T) {
 			if tc.setFHIRErrorFileDir {
 				outputPrefix = t.TempDir()
 			}
-			u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+			u, err := fhirstore.NewUploader(context.Background(), fhirstore.UploaderConfig{
 				FHIRStoreEndpoint:   serverURL,
 				FHIRProjectID:       projectID,
 				FHIRLocation:        location,
@@ -225,7 +226,7 @@ func TestUploader_BatchDefaultBatchSize(t *testing.T) {
 	errCounter := counter.New()
 	numWorkers := 1
 
-	u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+	u, err := fhirstore.NewUploader(context.Background(), fhirstore.UploaderConfig{
 		FHIRStoreEndpoint: server.URL,
 		FHIRProjectID:     projectID,
 		FHIRLocation:      location,
@@ -292,7 +293,7 @@ func TestUploader_BatchErrors(t *testing.T) {
 			}))
 			defer testServer.Close()
 
-			u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+			u, err := fhirstore.NewUploader(context.Background(), fhirstore.UploaderConfig{
 				FHIRStoreEndpoint:   testServer.URL,
 				FHIRProjectID:       projectID,
 				FHIRLocation:        location,
@@ -372,7 +373,7 @@ func TestUploader_Errors(t *testing.T) {
 			if tc.setOutputPrefix {
 				outputPrefix = t.TempDir()
 			}
-			u, err := fhirstore.NewUploader(fhirstore.UploaderConfig{
+			u, err := fhirstore.NewUploader(context.Background(), fhirstore.UploaderConfig{
 				FHIRStoreEndpoint:   testServer.URL,
 				FHIRProjectID:       fhirStoreProjectID,
 				FHIRLocation:        fhirStoreLocation,

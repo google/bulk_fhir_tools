@@ -148,7 +148,7 @@ func TestGCSNDJSONSink(t *testing.T) {
 	}))
 	defer gcsServer.Close()
 
-	sink, err := processing.NewGCSNDJSONSink(gcsServer.URL, bucketName, directory, prefix)
+	sink, err := processing.NewGCSNDJSONSink(ctx, gcsServer.URL, bucketName, directory, prefix)
 	if err != nil {
 		t.Fatal(err)
 	}

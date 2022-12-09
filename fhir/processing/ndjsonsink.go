@@ -72,21 +72,21 @@ func NewNDJSONSink(ctx context.Context, directory, filePrefix string) (Sink, err
 
 // NewGCSNDJSONSink returns a Sink which writes NDJSON files to GCS. See
 // NewNDJSONSink for additional documentation.
-func NewGCSNDJSONSink(endpoint, bucket, directory, filePrefix string) (Sink, error) {
-	return newGCSNDJSONSink(endpoint, bucket, directory, filePrefix)
+func NewGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory, filePrefix string) (Sink, error) {
+	return newGCSNDJSONSink(ctx, endpoint, bucket, directory, filePrefix)
 }
 
 // newGCSNDJSONSink returns the raw ndjsonSink, so that it can be embedded in
 // gcsBasedFHIRStoreSink without a cast.
-func newGCSNDJSONSink(endpoint, bucket, directory, filePrefix string) (*ndjsonSink, error) {
-	gcsClient, err := gcs.NewClient(bucket, endpoint)
+func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory, filePrefix string) (*ndjsonSink, error) {
+	gcsClient, err := gcs.NewClient(ctx, bucket, endpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	// This closure captures the GCS client and the `directory` parameter.
 	createFile := func(ctx context.Context, filename string) (io.WriteCloser, error) {
-		return gcsClient.GetFileWriter(gcs.JoinPath(directory, filename)), nil
+		return gcsClient.GetFileWriter(ctx, gcs.JoinPath(directory, filename)), nil
 	}
 
 	return &ndjsonSink{

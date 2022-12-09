@@ -94,7 +94,7 @@ func (gtts *gcsTransactionTimeStore) Load(ctx context.Context) (time.Time, error
 }
 
 func (gtts *gcsTransactionTimeStore) Store(ctx context.Context, ts time.Time) error {
-	writer := gtts.client.GetFileWriter(gtts.relativePath)
+	writer := gtts.client.GetFileWriter(ctx, gtts.relativePath)
 	if err := gtts.copyPreviousContent(ctx, writer); err != nil {
 		return err
 	}
@@ -127,10 +127,10 @@ func (gtts *gcsTransactionTimeStore) copyPreviousContent(ctx context.Context, wr
 // which persists the since timestamp to a file in GCS at the given URI. A new
 // line is appended to the file on each run, so that the entire history of
 // transaction times may be seen.
-func NewGCSTransactionTimeStore(gcsEndpoint, uri string) (TransactionTimeStore, error) {
+func NewGCSTransactionTimeStore(ctx context.Context, gcsEndpoint, uri string) (TransactionTimeStore, error) {
 	pieces := strings.SplitN(strings.TrimPrefix(uri, "gs://"), "/", 2)
 	bucket, relativePath := pieces[0], pieces[1]
-	client, err := gcs.NewClient(bucket, gcsEndpoint)
+	client, err := gcs.NewClient(ctx, bucket, gcsEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GCS client: %w", err)
 	}

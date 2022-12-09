@@ -139,7 +139,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 	}()
 
-	sinceStore, err := getTransactionTimeStore(cfg)
+	sinceStore, err := getTransactionTimeStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -298,7 +298,7 @@ func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
 	return bcda.NewClient(cfg.bcdaServerURL, bcda.V2, cfg.clientID, cfg.clientSecret)
 }
 
-func getTransactionTimeStore(cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {
+func getTransactionTimeStore(ctx context.Context, cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {
 	if cfg.since != "" && cfg.sinceFile != "" {
 		return nil, errors.New("only one of since or since_file flags may be set (cannot set both)")
 	}
@@ -314,7 +314,7 @@ func getTransactionTimeStore(cfg mainWrapperConfig) (bulkfhir.TransactionTimeSto
 	}
 
 	if strings.HasPrefix(cfg.sinceFile, "gs://") {
-		return bulkfhir.NewGCSTransactionTimeStore(cfg.gcsEndpoint, cfg.sinceFile)
+		return bulkfhir.NewGCSTransactionTimeStore(ctx, cfg.gcsEndpoint, cfg.sinceFile)
 	}
 
 	if cfg.sinceFile != "" {

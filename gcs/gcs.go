@@ -44,10 +44,9 @@ type Client struct {
 // bucket. Note `bucketName` must belong to an existing bucket. See here for how to create a GCS
 // bucket: https://cloud.google.com/storage/docs/creating-buckets.
 // TODO(b/243677730): Add support for creating buckets.
-func NewClient(bucketName, endpointURL string) (Client, error) {
+func NewClient(ctx context.Context, bucketName, endpointURL string) (Client, error) {
 	var storageClient *storage.Client
 	var err error
-	var ctx = context.Background()
 
 	if endpointURL == DefaultCloudStorageEndpoint {
 		storageClient, err = storage.NewClient(ctx, option.WithEndpoint(endpointURL))
@@ -67,19 +66,19 @@ func NewClient(bucketName, endpointURL string) (Client, error) {
 // GetFHIRFileWriter returns a write closer that allows the user to write to a file named `fileName`
 // in the pre defined GCS bucket in a folder called `since`.
 // Closing the write closer will send the written data to GCS.
-func (gcsClient Client) GetFHIRFileWriter(fileName string, since time.Time) io.WriteCloser {
+func (gcsClient Client) GetFHIRFileWriter(ctx context.Context, fileName string, since time.Time) io.WriteCloser {
 	// Use the `since` date as the folder where the resource will be written to.
 	objName := fmt.Sprintf("%s/%s", fhir.ToFHIRInstant(since), fileName)
-	return gcsClient.GetFileWriter(objName)
+	return gcsClient.GetFileWriter(ctx, objName)
 }
 
 // GetFileWriter returns a write closer that allows the user to write to a file named `fileName` in
 // the pre defined GCS bucket.
 // Closing the write closer will send the written data to GCS.
-func (gcsClient Client) GetFileWriter(fileName string) io.WriteCloser {
+func (gcsClient Client) GetFileWriter(ctx context.Context, fileName string) io.WriteCloser {
 	bkt := gcsClient.Bucket(gcsClient.bucketName)
 	obj := bkt.Object(fileName)
-	return obj.NewWriter(context.Background())
+	return obj.NewWriter(ctx)
 }
 
 // GetFileReader returns a reader for a file in GCS named `fileName`.
@@ -87,9 +86,6 @@ func (gcsClient Client) GetFileWriter(fileName string) io.WriteCloser {
 //
 // The caller must call Close on the returned Reader when done reading.
 func (gcsClient Client) GetFileReader(ctx context.Context, fileName string) (io.ReadCloser, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	bkt := gcsClient.Bucket(gcsClient.bucketName)
 	return bkt.Object(fileName).NewReader(ctx)
 }

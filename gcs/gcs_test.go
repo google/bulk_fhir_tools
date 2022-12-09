@@ -66,12 +66,14 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 		w.Write([]byte("{}"))
 	}))
 
-	gcsClient, err := NewClient(bucketID, server.URL)
+	ctx := context.Background()
+
+	gcsClient, err := NewClient(ctx, bucketID, server.URL)
 	if err != nil {
 		t.Error("Unexpected error when getting NewClient: ", err)
 	}
 
-	writeCloser := gcsClient.GetFHIRFileWriter(resourceName, since)
+	writeCloser := gcsClient.GetFHIRFileWriter(ctx, resourceName, since)
 
 	// Write data piece by piece.
 	_, err = writeCloser.Write([]byte(resourceData[0:5]))
@@ -108,12 +110,13 @@ func TestGCSClientReadsDataFromGCS(t *testing.T) {
 		w.Write([]byte(fileData))
 	}))
 
-	gcsClient, err := NewClient(bucketID, server.URL)
+	ctx := context.Background()
+
+	gcsClient, err := NewClient(ctx, bucketID, server.URL)
 	if err != nil {
 		t.Error("Unexpected error when creating NewClient: ", err)
 	}
 
-	ctx := context.Background()
 	reader, err := gcsClient.GetFileReader(ctx, fileName)
 	if err != nil {
 		t.Error("Unexpected error when getting file reader: ", err)

@@ -72,7 +72,7 @@ type UploaderConfig struct {
 }
 
 // NewUploader initializes and returns an Uploader.
-func NewUploader(config UploaderConfig) (*Uploader, error) {
+func NewUploader(ctx context.Context, config UploaderConfig) (*Uploader, error) {
 
 	batchSize := defaultBatchSize
 	if config.BatchSize != 0 {
@@ -100,28 +100,26 @@ func NewUploader(config UploaderConfig) (*Uploader, error) {
 		u.errorNDJSONFile = f
 	}
 
+	u.init(ctx)
+
 	return u, nil
 }
 
-func (u *Uploader) init() {
+func (u *Uploader) init(ctx context.Context) {
 	u.fhirJSONs = make(chan string, 100)
 	u.wg = &sync.WaitGroup{}
 
 	for i := 0; i < u.maxWorkers; i++ {
 		if u.batchUpload {
-			go u.uploadBatchWorker()
+			go u.uploadBatchWorker(ctx)
 		} else {
-			go u.uploadWorker()
+			go u.uploadWorker(ctx)
 		}
 	}
 }
 
 // Upload uploads the provided FHIR JSON to FHIR store.
 func (u *Uploader) Upload(fhirJSON []byte) {
-	if u.fhirJSONs == nil {
-		// This is the first upload call, so let's initialize.
-		u.init()
-	}
 	u.wg.Add(1)
 	u.fhirJSONs <- string(fhirJSON)
 }
@@ -142,8 +140,8 @@ func (u *Uploader) DoneUploading() {
 	close(u.fhirJSONs)
 }
 
-func (u *Uploader) uploadWorker() {
-	c, err := NewClient(context.Background(), u.fhirStoreEndpoint)
+func (u *Uploader) uploadWorker(ctx context.Context) {
+	c, err := NewClient(ctx, u.fhirStoreEndpoint)
 	if err != nil {
 		log.Exitf("error initializing FHIR store client: %v", err)
 	}
@@ -163,8 +161,8 @@ func (u *Uploader) uploadWorker() {
 	}
 }
 
-func (u *Uploader) uploadBatchWorker() {
-	c, err := NewClient(context.Background(), u.fhirStoreEndpoint)
+func (u *Uploader) uploadBatchWorker(ctx context.Context) {
+	c, err := NewClient(ctx, u.fhirStoreEndpoint)
 	if err != nil {
 		log.Exitf("error initializing FHIR store client: %v", err)
 	}
