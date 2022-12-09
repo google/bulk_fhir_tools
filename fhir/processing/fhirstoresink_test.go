@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
@@ -164,6 +165,9 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 		}
 	}))
 
+	tt := bulkfhir.NewTransactionTime()
+	tt.Set(transactionTime)
+
 	sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
 		FHIRStoreEndpoint: fhirStoreServer.URL,
 		FHIRStoreID:       gcpFHIRStoreID,
@@ -177,7 +181,7 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 		GCSBucket:           bucketName,
 		GCSImportJobTimeout: 5 * time.Second,
 		GCSImportJobPeriod:  time.Second,
-		TransactionTime:     transactionTime,
+		TransactionTime:     tt,
 	})
 	if err != nil {
 		t.Fatalf("failed to create sink: %v", err)

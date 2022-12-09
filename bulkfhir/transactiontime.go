@@ -30,6 +30,38 @@ import (
 	"github.com/google/medical_claims_tools/gcs"
 )
 
+// ErrUnsetTransactionTime is returned from TransactionTime.Get if it is
+// called before TransactionTime.Set is called.
+var ErrUnsetTransactionTime = errors.New("TransactionTime.Set has not been called")
+
+// A TransactionTime holds the transaction time for a bulk FHIR export. It
+// is used to allow constructing processing pipelines before the export
+// operation is started; pipeline steps may hold a pointer to the
+// TransactionTime, and call Get once they receive a resource to process or
+// store (by which time the cache should have been populated).
+type TransactionTime struct {
+	timestamp time.Time
+}
+
+// Set the timestamp in the cache.
+func (tt *TransactionTime) Set(timestamp time.Time) {
+	tt.timestamp = timestamp
+}
+
+// Get the timestamp from the cache. Returns an error if Set() has not yet been
+// called.
+func (tt *TransactionTime) Get() (time.Time, error) {
+	if tt.timestamp.IsZero() {
+		return time.Time{}, ErrUnsetTransactionTime
+	}
+	return tt.timestamp, nil
+}
+
+// NewTransactionTime returns a new TransactionTime.
+func NewTransactionTime() *TransactionTime {
+	return &TransactionTime{}
+}
+
 // TransactionTimeStore manages the transaction time of Bulk FHIR fetches. The
 // transaction timestamp of a successful export is saved so that it can be used
 // as the _since parameter for the subsequent export.

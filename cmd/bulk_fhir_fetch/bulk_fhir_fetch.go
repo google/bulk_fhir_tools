@@ -150,6 +150,8 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return fmt.Errorf("%v: %w", errInvalidSince, err)
 	}
 
+	transactionTime := bulkfhir.NewTransactionTime()
+
 	jobURL := cfg.pendingJobURL
 	if jobURL == "" {
 		jobURL, err = cl.StartBulkDataExport(bcda.ResourceTypes, since, bulkfhir.ExportGroupAll)
@@ -177,6 +179,8 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	if !jobStatus.IsComplete {
 		return fmt.Errorf("BCDA Job did not finish before the timeout of %v", jobStatusTimeout)
 	}
+
+	transactionTime.Set(jobStatus.TransactionTime)
 
 	log.Infof("BCDA Job Finished. Transaction Time: %v", fhir.ToFHIRInstant(jobStatus.TransactionTime))
 	log.Infof("Begin BCDA data download and write out to disk.")
@@ -216,7 +220,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 			GCSBucket:           cfg.fhirStoreGCSBasedUploadBucket,
 			GCSImportJobTimeout: gcsImportJobTimeout,
 			GCSImportJobPeriod:  gcsImportJobPeriod,
-			TransactionTime:     jobStatus.TransactionTime,
+			TransactionTime:     transactionTime,
 		})
 		if err != nil {
 			return fmt.Errorf("error making FHIR Store sink: %v", err)

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
+	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/internal/counter"
@@ -74,7 +75,12 @@ func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 //
 // [0]: https://cloud.google.com/healthcare-api/docs/reference/rest/v1/projects.locations.datasets.fhirStores/import
 type gcsBasedFHIRStoreSink struct {
-	*ndjsonSink
+	// ndjsonSink is lazily initialised so that we can retrieve the transaction
+	// time from transactionTime. The context stored here is used *only* for
+	// initialising ndjsonSink, as if the sink were initialized when the Sink was
+	// created.
+	ndjsonSink    *ndjsonSink
+	ndjsonSinkCtx context.Context
 
 	fhirStoreClient       *fhirstore.Client
 	fhirStoreGCPProject   string
@@ -82,21 +88,53 @@ type gcsBasedFHIRStoreSink struct {
 	fhirStoreGCPDatasetID string
 	fhirStoreID           string
 
-	gcsURI              string
+	transactionTime *bulkfhir.TransactionTime
+
+	gcsEndpoint         string
+	gcsBucket           string
 	gcsImportJobTimeout time.Duration
 	gcsImportJobPeriod  time.Duration
 
 	noFailOnUploadErrors bool
 }
 
+func (gbfss *gcsBasedFHIRStoreSink) Write(ctx context.Context, resource ResourceWrapper) error {
+	if gbfss.ndjsonSink == nil {
+		transactionTime, err := gbfss.transactionTime.Get()
+		if err != nil {
+			return err
+		}
+		// Use the stored context from NewFHIRStoreSink, in case ctx is cancelled
+		// before subsequent Write calls.
+		gbfss.ndjsonSink, err = newGCSNDJSONSink(gbfss.ndjsonSinkCtx, gbfss.gcsEndpoint, gbfss.gcsBucket, fhir.ToFHIRInstant(transactionTime), "" /* filePrefix */)
+		if err != nil {
+			return err
+		}
+	}
+	return gbfss.ndjsonSink.Write(ctx, resource)
+}
+
 func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
+	if gbfss.ndjsonSink == nil {
+		// Write was never called; nothing to do here.
+		return nil
+	}
+
 	if err := gbfss.ndjsonSink.Finalize(ctx); err != nil {
 		return fmt.Errorf("failed to close GCS files: %w", err)
 	}
 
-	log.Infof("Starting the import job from GCS location where FHIR data was saved: %s", gbfss.gcsURI)
+	transactionTime, err := gbfss.transactionTime.Get()
+	if err != nil {
+		// This should never happen; by the time we're calling this, the
+		// TransactionTime should have been populated.
+		return err
+	}
+	gcsURI := fmt.Sprintf("gs://%s/%s/**", gbfss.gcsBucket, fhir.ToFHIRInstant(transactionTime))
+
+	log.Infof("Starting the import job from GCS location where FHIR data was saved: %s", gcsURI)
 	opName, err := gbfss.fhirStoreClient.ImportFromGCS(
-		gbfss.gcsURI,
+		gcsURI,
 		gbfss.fhirStoreGCPProject,
 		gbfss.fhirStoreGCPLocation,
 		gbfss.fhirStoreGCPDatasetID,
@@ -153,29 +191,28 @@ type FHIRStoreSinkConfig struct {
 	GCSBucket           string
 	GCSImportJobTimeout time.Duration
 	GCSImportJobPeriod  time.Duration
-	TransactionTime     time.Time
+	TransactionTime     *bulkfhir.TransactionTime
 }
 
 // NewFHIRStoreSink creates a new Sink which writes resources to FHIR Store,
 // either directly or via GCS.
 func NewFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
 	if cfg.UseGCSUpload {
-		ndjsonSink, err := newGCSNDJSONSink(ctx, cfg.GCSEndpoint, cfg.GCSBucket, fhir.ToFHIRInstant(cfg.TransactionTime), "" /* filePrefix */)
-		if err != nil {
-			return nil, err
-		}
 		fhirStoreClient, err := fhirstore.NewClient(ctx, cfg.FHIRStoreEndpoint)
 		if err != nil {
 			return nil, err
 		}
 		return &gcsBasedFHIRStoreSink{
-			ndjsonSink:            ndjsonSink,
+			// Used only for deferred initialisation of the ndjsonSink
+			ndjsonSinkCtx:         ctx,
 			fhirStoreClient:       fhirStoreClient,
 			fhirStoreID:           cfg.FHIRStoreID,
 			fhirStoreGCPProject:   cfg.FHIRProjectID,
 			fhirStoreGCPLocation:  cfg.FHIRLocation,
 			fhirStoreGCPDatasetID: cfg.FHIRDatasetID,
-			gcsURI:                fmt.Sprintf("gs://%s/%s/**", cfg.GCSBucket, fhir.ToFHIRInstant(cfg.TransactionTime)),
+			transactionTime:       cfg.TransactionTime,
+			gcsEndpoint:           cfg.GCSEndpoint,
+			gcsBucket:             cfg.GCSBucket,
 			gcsImportJobTimeout:   cfg.GCSImportJobTimeout,
 			gcsImportJobPeriod:    cfg.GCSImportJobPeriod,
 			noFailOnUploadErrors:  cfg.NoFailOnUploadErrors,
