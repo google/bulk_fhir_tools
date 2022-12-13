@@ -17,11 +17,9 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,7 +28,7 @@ import (
 	log "github.com/golang/glog"
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fhir"
+	"github.com/google/medical_claims_tools/fetcher"
 	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/gcs"
@@ -76,23 +74,12 @@ var (
 )
 
 const (
-	// jobStatusPeriod indicates how often we check a pending job status.
-	jobStatusPeriod = 5 * time.Second
-	// jobStatusTimeout indicates the maximum time that should be spend checking on
-	// a pending JobStatus.
-	jobStatusTimeout = 6 * time.Hour
 	// gcsImportJobPeriod indicates how often the program should check the FHIR
 	// store GCS import job.
 	gcsImportJobPeriod = 5 * time.Second
 	// gcsImportJobTimeout indicates the maximum time that should be spent
 	// checking on the FHIR Store GCS import job.
 	gcsImportJobTimeout = 6 * time.Hour
-	// maxTokenSize represents the maximum newline delimited token size in bytes
-	// expected when parsing FHIR NDJSON.
-	maxTokenSize = 500 * 1024
-	// initialBufferSize indicates the initial buffer size in bytes to use when
-	// parsing a FHIR NDJSON token.
-	initialBufferSize = 5 * 1024
 )
 
 func main() {
@@ -139,51 +126,12 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		}
 	}()
 
-	sinceStore, err := getTransactionTimeStore(ctx, cfg)
+	ttStore, err := getTransactionTimeStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	since, err := sinceStore.Load(ctx)
-	if err != nil {
-		// We match the text of errInvalidSince in tests; fmt.Errorf does not allow
-		// using multiple %w verbs.
-		return fmt.Errorf("%v: %w", errInvalidSince, err)
-	}
 
 	transactionTime := bulkfhir.NewTransactionTime()
-
-	jobURL := cfg.pendingJobURL
-	if jobURL == "" {
-		jobURL, err = cl.StartBulkDataExport(bcda.ResourceTypes, since, bulkfhir.ExportGroupAll)
-		if err != nil {
-			return fmt.Errorf("unable to StartBulkDataExport: %v", err)
-		}
-		log.Infof("Started BCDA job: %s\n", jobURL)
-	}
-
-	var monitorResult *bulkfhir.MonitorResult
-	for monitorResult = range cl.MonitorJobStatus(jobURL, jobStatusPeriod, jobStatusTimeout) {
-		if monitorResult.Error != nil {
-			log.Errorf("error while checking the jobStatus: %v", monitorResult.Error)
-		}
-		if !monitorResult.Status.IsComplete {
-			if monitorResult.Status.PercentComplete >= 0 {
-				log.Infof("BCDA Export job pending, progress: %d", monitorResult.Status.PercentComplete)
-			} else {
-				log.Info("BCDA Export job pending, progress unknown")
-			}
-		}
-	}
-
-	jobStatus := monitorResult.Status
-	if !jobStatus.IsComplete {
-		return fmt.Errorf("BCDA Job did not finish before the timeout of %v", jobStatusTimeout)
-	}
-
-	transactionTime.Set(jobStatus.TransactionTime)
-
-	log.Infof("BCDA Job Finished. Transaction Time: %v", fhir.ToFHIRInstant(jobStatus.TransactionTime))
-	log.Infof("Begin BCDA data download and write out to disk.")
 
 	var processors []processing.Processor
 	if cfg.rectify {
@@ -233,58 +181,16 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return fmt.Errorf("error making output pipeline: %v", err)
 	}
 
-	for resourceType, urls := range jobStatus.ResultURLs {
-		for _, url := range urls {
-			r, err := getDataOrExit(cl, url, cfg.clientID, cfg.clientSecret)
-			if err != nil {
-				return err
-			}
-			defer r.Close()
-			s := bufio.NewScanner(r)
-			s.Buffer(make([]byte, initialBufferSize), maxTokenSize)
-			for s.Scan() {
-				if err := pipeline.Process(ctx, resourceType, url, s.Bytes()); err != nil {
-					return err
-				}
-			}
-			if err := s.Err(); err != nil {
-				return err
-			}
-		}
+	f := &fetcher.Fetcher{
+		Client:               cl,
+		Pipeline:             pipeline,
+		TransactionTimeStore: ttStore,
+		TransactionTime:      transactionTime,
+		JobURL:               cfg.pendingJobURL,
+		ResourceTypes:        bcda.ResourceTypes,
+		ExportGroup:          bulkfhir.ExportGroupAll,
 	}
-
-	if err := pipeline.Finalize(ctx); err != nil {
-		return fmt.Errorf("failed to finalize output pipeline: %w", err)
-	}
-
-	if err := sinceStore.Store(ctx, jobStatus.TransactionTime); err != nil {
-		return fmt.Errorf("failed to store transaction timestamp: %v", err)
-	}
-
-	log.Info("bulk_fhir_fetch complete.")
-	return nil
-}
-
-func getDataOrExit(cl *bulkfhir.Client, url, clientID, clientSecret string) (io.ReadCloser, error) {
-	r, err := cl.GetData(url)
-	numRetries := 0
-	// Retry both unauthorized and other retryable errors by re-authenticating,
-	// as sometimes they appear to be related.
-	for (errors.Is(err, bulkfhir.ErrorUnauthorized) || errors.Is(err, bulkfhir.ErrorRetryableHTTPStatus)) && numRetries < 5 {
-		time.Sleep(2 * time.Second)
-		log.Infof("Got retryable error from BCDA. Re-authenticating and trying again.")
-		if err := cl.Authenticate(); err != nil {
-			return nil, fmt.Errorf("Error authenticating with API: %w", err)
-		}
-		r, err = cl.GetData(url)
-		numRetries++
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("Unable to GetData(%s) %w", url, err)
-	}
-
-	return r, nil
+	return f.Run(ctx)
 }
 
 // getBulkFHIRClient builds and returns the right kind of bulk fhir client to

@@ -38,6 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/medical_claims_tools/bulkfhir"
+	"github.com/google/medical_claims_tools/fetcher"
 	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
 )
@@ -61,7 +62,7 @@ func TestMainWrapper(t *testing.T) {
 		// set to true.
 		fhirStoreFailures          bool
 		noFailOnUploadErrors       bool
-		pendingJobURLSuffix        string
+		setPendingJobURL           bool
 		fhirStoreEnableBatchUpload bool
 		// unsetOutputPrefix sets the outputPrefix to empty string if true.
 		unsetOutputPrefix bool
@@ -128,7 +129,7 @@ func TestMainWrapper(t *testing.T) {
 			name:             "InvalidSinceFileInstant",
 			rectify:          true,
 			sinceFileContent: []byte("2006-01-02\n"),
-			wantError:        errInvalidSince,
+			wantError:        fetcher.ErrInvalidTransactionTime,
 		},
 		// Test FHIR Store upload failures.
 		{
@@ -204,9 +205,6 @@ func TestMainWrapper(t *testing.T) {
 
 			exportEndpoint := "/api/v2/Group/all/$export"
 			expectedJobURLSuffix := "/jobs/1234"
-			if tc.pendingJobURLSuffix != "" {
-				expectedJobURLSuffix = tc.pendingJobURLSuffix
-			}
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
 			// Setup BCDA test servers:
@@ -287,13 +285,16 @@ func TestMainWrapper(t *testing.T) {
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
 				fhirStoreID:                gcpFHIRStoreID,
-				pendingJobURL:              bcdaServer.URL + expectedJobURLSuffix,
 				fhirStoreEnableBatchUpload: tc.fhirStoreEnableBatchUpload,
 				enableFHIRStore:            tc.enableFHIRStore,
 				rectify:                    tc.rectify,
 				since:                      tc.since,
 				noFailOnUploadErrors:       tc.noFailOnUploadErrors,
 				maxFHIRStoreUploadWorkers:  10,
+			}
+
+			if tc.setPendingJobURL {
+				cfg.pendingJobURL = bcdaServer.URL + expectedJobURLSuffix
 			}
 
 			if tc.enableFHIRStoreUploadErrorFileDir {
@@ -390,7 +391,7 @@ func TestMainWrapper(t *testing.T) {
 					expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
 				}
 
-				if tc.pendingJobURLSuffix != "" {
+				if tc.setPendingJobURL {
 					if got := exportEndpointCalled.Value(); got > 0 {
 						t.Errorf("mainWrapper: when pendingJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
 					}
