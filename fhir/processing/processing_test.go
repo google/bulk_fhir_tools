@@ -34,8 +34,8 @@ func (tp *testProcessor) Process(ctx context.Context, resource processing.Resour
 }
 
 func TestTeeFHIRSink(t *testing.T) {
-	ts1 := &testSink{}
-	ts2 := &testSink{}
+	ts1 := &processing.TestSink{}
+	ts2 := &processing.TestSink{}
 	ctx := context.Background()
 	p, err := processing.NewPipeline([]processing.Processor{&testProcessor{}}, []processing.Sink{ts1, ts2})
 	if err != nil {
@@ -50,24 +50,24 @@ func TestTeeFHIRSink(t *testing.T) {
 	if err := p.Finalize(ctx); err != nil {
 		t.Fatalf("p.Finalize() returned unexpected error: %v", err)
 	}
-	for i, ts := range []*testSink{ts1, ts2} {
-		if len(ts.writtenResources) != 1 {
-			t.Fatalf("testSink %d captured %d resources, want 1", i, len(ts.writtenResources))
+	for i, ts := range []*processing.TestSink{ts1, ts2} {
+		if len(ts.WrittenResources) != 1 {
+			t.Fatalf("TestSink %d captured %d resources, want 1", i, len(ts.WrittenResources))
 		}
-		if ts.writtenResources[0].Type() != resourceType {
-			t.Errorf("testSink %d captured unexpected resource type: got %s, want %s", i, ts.writtenResources[0].Type(), resourceType)
+		if ts.WrittenResources[0].Type() != resourceType {
+			t.Errorf("TestSink %d captured unexpected resource type: got %s, want %s", i, ts.WrittenResources[0].Type(), resourceType)
 		}
-		if ts.writtenResources[0].SourceURL() != sourceURL {
-			t.Errorf("testSink %d captured unexpected resource type: got %q, want %q", i, ts.writtenResources[0].SourceURL(), sourceURL)
+		if ts.WrittenResources[0].SourceURL() != sourceURL {
+			t.Errorf("TestSink %d captured unexpected resource type: got %q, want %q", i, ts.WrittenResources[0].SourceURL(), sourceURL)
 		}
-		json, err := ts.writtenResources[0].JSON()
+		json, err := ts.WrittenResources[0].JSON()
 		if err != nil {
-			t.Errorf("testSink %d JSON() returned unexpected error: %v", i, err)
+			t.Errorf("TestSink %d JSON() returned unexpected error: %v", i, err)
 		} else if !cmp.Equal(json, data) {
-			t.Errorf("testSink %d captured unexpected data: got %s, want %s", i, json, data)
+			t.Errorf("TestSink %d captured unexpected data: got %s, want %s", i, json, data)
 		}
-		if !ts.finalizeCalled {
-			t.Errorf("Finalize not called on testSink %d", i)
+		if !ts.FinalizeCalled {
+			t.Errorf("Finalize not called on TestSink %d", i)
 		}
 	}
 }

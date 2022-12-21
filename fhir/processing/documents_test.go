@@ -91,7 +91,7 @@ func TestDocumentsProcessor(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer os.RemoveAll(tempdir)
-			ts := &testSink{}
+			ts := &processing.TestSink{}
 			authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator("username", "password", server.URL+"/auth", nil)
 			if err != nil {
 				t.Fatal(err)
@@ -121,7 +121,7 @@ func TestDocumentsProcessor(t *testing.T) {
 			// that the filename in the output resource exists, and then populate the
 			// wanted resource with the filename that was written.
 
-			gotResource, err := ts.writtenResources[0].Proto()
+			gotResource, err := ts.WrittenResources[0].Proto()
 			if err != nil {
 				t.Fatalf("writtenResource.Proto() returned unexpected error: %v", err)
 			}
@@ -139,7 +139,7 @@ func TestDocumentsProcessor(t *testing.T) {
 				tc.wantJSON = strings.Replace(tc.wantJSON, fmt.Sprintf("FILEPATH%d", i), strings.ReplaceAll(url, `\`, `\\`), 1)
 			}
 
-			gotJSON, err := ts.writtenResources[0].JSON()
+			gotJSON, err := ts.WrittenResources[0].JSON()
 			if err != nil {
 				t.Fatalf("writtenResource.JSON() returned unexpected error: %v", err)
 			}

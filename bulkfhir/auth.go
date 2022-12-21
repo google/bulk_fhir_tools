@@ -65,8 +65,8 @@ type Authenticator interface {
 	AddAuthenticationToRequest(hc *http.Client, req *http.Request) error
 }
 
-// bearerToken encapsulates a bearer token presented as an Authorization header.
-type bearerToken struct {
+// BearerToken encapsulates a bearer token presented as an Authorization header.
+type BearerToken struct {
 	token                        string
 	expiry                       time.Time
 	alwaysAuthenticateIfNoExpiry bool
@@ -80,7 +80,7 @@ type bearerToken struct {
 //     from a previous request, or a default expiry set when the authenticator
 //     was created.
 //   - No expiry time is available, and alwaysAuthenticateIfNoExpiry is true.
-func (bt *bearerToken) shouldRenew() bool {
+func (bt *BearerToken) shouldRenew() bool {
 	if bt == nil || bt.token == "" {
 		return true
 	}
@@ -94,32 +94,32 @@ func (bt *bearerToken) shouldRenew() bool {
 	return false
 }
 
-func (bt *bearerToken) addHeader(req *http.Request) {
+func (bt *BearerToken) addHeader(req *http.Request) {
 	req.Header.Set(authorizationHeader, fmt.Sprintf("Bearer %s", bt.token))
 }
 
-// credentialExchanger is used by bearerTokenAuthenticator to exchange
+// CredentialExchanger is used by bearerTokenAuthenticator to exchange
 // long-lived credentials for a short lived bearer token.
-type credentialExchanger interface {
-	authenticate(hc *http.Client) (*bearerToken, error)
+type CredentialExchanger interface {
+	Authenticate(hc *http.Client) (*BearerToken, error)
 }
 
-// bearerTokenAuthenticator is an implementation of Authenticator which uses a
-// credentialExchanger to obtain a bearer token which is presented in an
+// BearerTokenAuthenticator is an implementation of Authenticator which uses a
+// CredentialExchanger to obtain a bearer token which is presented in an
 // Authorization header.
 //
 // Note: this implementation is not thread safe.
-type bearerTokenAuthenticator struct {
-	exchanger credentialExchanger
-	token     *bearerToken
+type BearerTokenAuthenticator struct {
+	Exchanger CredentialExchanger
+	token     *BearerToken
 }
 
 // Authenticate is Authenticator.Authenticate.
 //
-// This Authenticator uses the credentialExchanger it contains to obtain a
+// This Authenticator uses the CredentialExchanger it contains to obtain a
 // bearer token.
-func (bta *bearerTokenAuthenticator) Authenticate(hc *http.Client) error {
-	token, err := bta.exchanger.authenticate(hc)
+func (bta *BearerTokenAuthenticator) Authenticate(hc *http.Client) error {
+	token, err := bta.Exchanger.Authenticate(hc)
 	if err != nil {
 		return err
 	}
@@ -129,9 +129,9 @@ func (bta *bearerTokenAuthenticator) Authenticate(hc *http.Client) error {
 
 // AuthenticateIfNecessary is Authenticator.AuthenticateIfNecessary.
 //
-// This Authenticator uses the credentialExchanger it contains to obtain a
+// This Authenticator uses the CredentialExchanger it contains to obtain a
 // bearer token.
-func (bta *bearerTokenAuthenticator) AuthenticateIfNecessary(hc *http.Client) error {
+func (bta *BearerTokenAuthenticator) AuthenticateIfNecessary(hc *http.Client) error {
 	if bta.token.shouldRenew() {
 		return bta.Authenticate(hc)
 	}
@@ -142,7 +142,7 @@ func (bta *bearerTokenAuthenticator) AuthenticateIfNecessary(hc *http.Client) er
 //
 // This Authenticator adds an access token as an Authorization: Bearer {token}
 // header, automatically requesting/refreshing the token as necessary.
-func (bta *bearerTokenAuthenticator) AddAuthenticationToRequest(hc *http.Client, req *http.Request) error {
+func (bta *BearerTokenAuthenticator) AddAuthenticationToRequest(hc *http.Client, req *http.Request) error {
 	if err := bta.AuthenticateIfNecessary(hc); err != nil {
 		return err
 	}
@@ -201,8 +201,8 @@ func (tr *tokenResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiry bool) *bearerToken {
-	bt := &bearerToken{
+func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiry bool) *BearerToken {
+	bt := &BearerToken{
 		token:                        tr.Token,
 		alwaysAuthenticateIfNoExpiry: alwaysAuthenticateIfNoExpiry,
 	}
@@ -214,9 +214,9 @@ func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthen
 	return bt
 }
 
-// doOAuthExchange sends a HTTP request which is expected to return a JSON
-// response matching tokenResponse.
-func doOAuthExchange(hc *http.Client, req *http.Request, defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiresIn bool) (*bearerToken, error) {
+// DoOAuthExchange sends a HTTP request which is expected to return a JSON
+// response with "token" and "expires_in" fields.
+func DoOAuthExchange(hc *http.Client, req *http.Request, defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiresIn bool) (*BearerToken, error) {
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
@@ -239,7 +239,7 @@ func doOAuthExchange(hc *http.Client, req *http.Request, defaultExpiry time.Dura
 	return tr.toBearerToken(defaultExpiry, alwaysAuthenticateIfNoExpiresIn), nil
 }
 
-// httpBasicOAuthExchanger is an implementation of credentialExchanger for use
+// httpBasicOAuthExchanger is an implementation of CredentialExchanger for use
 // with bearerTokenAuthenticator which performs a 2-legged OAuth2 handshake
 // using HTTP Basic Authentication to obtain an access token, which is presented
 // as an "Authorization: Bearer {token}" header in all requests.
@@ -267,11 +267,11 @@ func (hboe *httpBasicOAuthExchanger) buildBody() io.Reader {
 	return bytes.NewBufferString(v.Encode())
 }
 
-// authenticate is credentialExchanger.authenticate.
+// Authenticate is CredentialExchanger.Authenticate.
 //
-// This credentialExchanger performs 2-legged OAuth using HTTP Basic
+// This CredentialExchanger performs 2-legged OAuth using HTTP Basic
 // Authentication to obtain an expiry token.
-func (hboe *httpBasicOAuthExchanger) authenticate(hc *http.Client) (*bearerToken, error) {
+func (hboe *httpBasicOAuthExchanger) Authenticate(hc *http.Client) (*BearerToken, error) {
 	req, err := http.NewRequest(http.MethodPost, hboe.tokenURL, hboe.buildBody())
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func (hboe *httpBasicOAuthExchanger) authenticate(hc *http.Client) (*bearerToken
 	req.Header.Add(acceptHeader, acceptHeaderJSON)
 	req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
 
-	return doOAuthExchange(hc, req, hboe.defaultExpiry, hboe.alwaysAuthenticateIfNoExpiresIn)
+	return DoOAuthExchange(hc, req, hboe.defaultExpiry, hboe.alwaysAuthenticateIfNoExpiresIn)
 }
 
 // HTTPBasicOAuthOptions contains optional parameters used by
@@ -332,7 +332,7 @@ func NewHTTPBasicOAuthAuthenticator(username, password, tokenURL string, opts *H
 		e.defaultExpiry = opts.DefaultExpiry
 	}
 
-	return &bearerTokenAuthenticator{exchanger: e}, nil
+	return &BearerTokenAuthenticator{Exchanger: e}, nil
 }
 
 // A JWTKeyProvider provides the RSA private key used for signing JSON Web Tokens.
@@ -420,11 +420,11 @@ func (joe *jwtOAuthExchanger) buildBody() (io.Reader, error) {
 	return bytes.NewBufferString(v.Encode()), nil
 }
 
-// authenticate is credentialExchanger.authenticate.
+// Authenticate is CredentialExchanger.Authenticate.
 //
-// This credentialExchanger performs 2-legged OAuth using HTTP Basic
+// This CredentialExchanger performs 2-legged OAuth using HTTP Basic
 // Authentication to obtain an expiry token.
-func (joe *jwtOAuthExchanger) authenticate(hc *http.Client) (*bearerToken, error) {
+func (joe *jwtOAuthExchanger) Authenticate(hc *http.Client) (*BearerToken, error) {
 	body, err := joe.buildBody()
 	if err != nil {
 		return nil, err
@@ -437,7 +437,7 @@ func (joe *jwtOAuthExchanger) authenticate(hc *http.Client) (*bearerToken, error
 	req.Header.Add(acceptHeader, acceptHeaderJSON)
 	req.Header.Add(contentTypeHeader, contentTypeFormURLEncoded)
 
-	return doOAuthExchange(hc, req, joe.defaultExpiry, joe.alwaysAuthenticateIfNoExpiresIn)
+	return DoOAuthExchange(hc, req, joe.defaultExpiry, joe.alwaysAuthenticateIfNoExpiresIn)
 }
 
 // JWTOAuthOptions contains optional parameters used by NewJWTOAuthAuthenticator.
@@ -494,5 +494,5 @@ func NewJWTOAuthAuthenticator(issuer, subject, tokenURL string, keyProvider JWTK
 		}
 	}
 
-	return &bearerTokenAuthenticator{exchanger: e}, nil
+	return &BearerTokenAuthenticator{Exchanger: e}, nil
 }

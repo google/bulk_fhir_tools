@@ -102,7 +102,7 @@ func TestBcdaRectifyProcessor(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ts := &testSink{}
+			ts := &processing.TestSink{}
 			p, err := processing.NewPipeline([]processing.Processor{processing.NewBCDARectifyProcessor()}, []processing.Sink{ts})
 			if err != nil {
 				t.Fatalf("NewPipeline() returned unexpected error: %v", err)
@@ -110,7 +110,7 @@ func TestBcdaRectifyProcessor(t *testing.T) {
 			if err := p.Process(context.Background(), tc.resourceType, "", tc.jsonIn); err != nil {
 				t.Fatalf("pipeline.Process(..., %s) returned unexpected error: %v", tc.jsonIn, err)
 			}
-			gotJSON, err := ts.writtenResources[0].JSON()
+			gotJSON, err := ts.WrittenResources[0].JSON()
 			if err != nil {
 				t.Fatalf("writtenResource.JSON() returned unexpected error: %v", err)
 			}

@@ -611,7 +611,7 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		auth.(*bearerTokenAuthenticator).token = &bearerToken{
+		auth.(*BearerTokenAuthenticator).token = &BearerToken{
 			token:  "123",
 			expiry: time.Now().Add(5 * time.Minute),
 		}

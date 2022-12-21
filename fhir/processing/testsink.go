@@ -12,29 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package processing_test
+package processing
 
 import (
 	"context"
-
-	"github.com/google/medical_claims_tools/fhir/processing"
 )
 
-// testSink can be used for testing processors by capturing processed resources.
-type testSink struct {
-	writtenResources []processing.ResourceWrapper
-	finalizeCalled   bool
+// TestSink can be used for testing processors by capturing processed resources.
+type TestSink struct {
+	WrittenResources []ResourceWrapper
+	FinalizeCalled   bool
 }
 
-func (ts *testSink) Write(ctx context.Context, resource processing.ResourceWrapper) error {
-	ts.writtenResources = append(ts.writtenResources, resource)
+// Write is Sink.Write
+func (ts *TestSink) Write(ctx context.Context, resource ResourceWrapper) error {
+	ts.WrittenResources = append(ts.WrittenResources, resource)
 	return nil
 }
 
-func (ts *testSink) Finalize(ctx context.Context) error {
-	ts.finalizeCalled = true
+// Finalize is Sink.Finalize
+func (ts *TestSink) Finalize(ctx context.Context) error {
+	ts.FinalizeCalled = true
 	return nil
 }
 
-// Assert that testSink satisfies the Sink interface.
-var _ processing.Sink = &testSink{}
+// Assert that TestSink satisfies the Sink interface.
+var _ Sink = &TestSink{}
