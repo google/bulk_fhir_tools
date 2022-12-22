@@ -16,13 +16,10 @@ package gcs
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
+
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 )
 
 func TestGCSClientWritesResourceToGCS(t *testing.T) {
@@ -30,35 +27,12 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 	var resourceName = "directory/TestResource"
 	var resourceData = "testtest 2"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// Request to send the contents of the writer to GCS.
-		requestPath := ("/upload/storage/v1/b/" +
-			bucketID + "/o?alt=json&name=" +
-			url.QueryEscape(resourceName) +
-			"&prettyPrint=false&projection=full&uploadType=multipart")
-
-		if req.URL.String() == requestPath {
-
-			data, err := io.ReadAll(req.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-			stringData := string(data)
-
-			if !strings.Contains(stringData, resourceData) {
-				t.Errorf("Expected body payload to contain %v", resourceData)
-			}
-		} else {
-			t.Fatalf("Test server got unexpected url: %v", req.URL.String())
-		}
-
-		w.WriteHeader(200)
-		w.Write([]byte("{}"))
-	}))
+	server := testhelpers.NewGCSServer(t)
+	defer server.Close()
 
 	ctx := context.Background()
 
-	gcsClient, err := NewClient(ctx, bucketID, server.URL)
+	gcsClient, err := NewClient(ctx, bucketID, server.URL())
 	if err != nil {
 		t.Error("Unexpected error when getting NewClient: ", err)
 	}
@@ -80,6 +54,15 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 	if err != nil {
 		t.Error("Unexpected error when closing file and uploading data to GCS: ", err)
 	}
+
+	obj, ok := server.GetObject(bucketID, resourceName)
+	if !ok {
+		t.Fatalf("object %s/%s was not found", bucketID, resourceName)
+	}
+
+	if string(obj.Data) != resourceData {
+		t.Errorf("expected file data to be %q; got %q", resourceData, string(obj.Data))
+	}
 }
 
 func TestGCSClientReadsDataFromGCS(t *testing.T) {
@@ -87,22 +70,15 @@ func TestGCSClientReadsDataFromGCS(t *testing.T) {
 	var fileName = "TestFile"
 	var fileData = "{ value : 'hello' }"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// Request to get a reader from GCS.
-		requestPath := fmt.Sprintf("/%s/%s", bucketID, fileName)
-
-		if req.URL.String() != requestPath {
-			t.Errorf("Test server got unexpected url: %v", req.URL.String())
-			return
-		}
-
-		w.WriteHeader(200)
-		w.Write([]byte(fileData))
-	}))
+	server := testhelpers.NewGCSServer(t)
+	defer server.Close()
+	server.AddObject(bucketID, fileName, testhelpers.GCSObjectEntry{
+		Data: []byte(fileData),
+	})
 
 	ctx := context.Background()
 
-	gcsClient, err := NewClient(ctx, bucketID, server.URL)
+	gcsClient, err := NewClient(ctx, bucketID, server.URL())
 	if err != nil {
 		t.Error("Unexpected error when creating NewClient: ", err)
 	}
