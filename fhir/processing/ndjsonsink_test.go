@@ -17,16 +17,13 @@ package processing_test
 import (
 	"bytes"
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhir/processing"
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
@@ -123,32 +120,9 @@ func TestGCSNDJSONSink(t *testing.T) {
 	directory := "directory"
 	prefix := "prefix"
 
-	gcsWriteCalled := false
+	gcsServer := testhelpers.NewGCSServer(t)
 
-	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		fileWritePath := ("/upload/storage/v1/b/" +
-			bucketName + "/o?alt=json&name=" +
-			url.QueryEscape(directory+"/"+prefix+"_Patient_0.ndjson") +
-			"&prettyPrint=false&projection=full&uploadType=multipart")
-
-		if req.URL.String() != fileWritePath {
-			t.Errorf("gcs server got unexpected request. got: %v, want: %v", req.URL.String(), fileWritePath)
-		}
-		data, err := io.ReadAll(req.Body)
-		if err != nil {
-			t.Errorf("gcs server error reading body.")
-		}
-		if !bytes.Contains(data, patient1) {
-			t.Errorf("gcs server unexpected data: got: %s, want: %s", data, patient1)
-		}
-		gcsWriteCalled = true
-		// We have to write a response, else closing the file returns an EOF error,
-		// but the response doesn't actually need to contain anything.
-		w.Write([]byte(`{}`))
-	}))
-	defer gcsServer.Close()
-
-	sink, err := processing.NewGCSNDJSONSink(ctx, gcsServer.URL, bucketName, directory, prefix)
+	sink, err := processing.NewGCSNDJSONSink(ctx, gcsServer.URL(), bucketName, directory, prefix)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +137,12 @@ func TestGCSNDJSONSink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !gcsWriteCalled {
-		t.Error("expected data to be written to GCS")
+	objName := directory + "/" + prefix + "_Patient_0.ndjson"
+	obj, ok := gcsServer.GetObject(bucketName, objName)
+	if !ok {
+		t.Fatalf("gs://%s/%s not found", bucketName, objName)
+	}
+	if !bytes.Contains(obj.Data, patient1) {
+		t.Errorf("gcs server unexpected data: got: %s, want: %s", obj.Data, patient1)
 	}
 }

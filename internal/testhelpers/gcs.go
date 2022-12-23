@@ -51,6 +51,9 @@ func NewGCSServer(t *testing.T) *GCSServer {
 		objects: map[gcsObjectKey]GCSObjectEntry{},
 	}
 	gs.server = httptest.NewServer(http.HandlerFunc(gs.handleHTTP))
+	t.Cleanup(func() {
+		gs.server.Close()
+	})
 	return gs
 }
 
@@ -65,14 +68,9 @@ func (gs *GCSServer) GetObject(bucket, name string) (GCSObjectEntry, bool) {
 	return obj, ok
 }
 
-// URL returns the URL of the GCS server to be based to the client library.
+// URL returns the URL of the GCS server to be passed to the client library.
 func (gs *GCSServer) URL() string {
 	return gs.server.URL
-}
-
-// Close shuts down the server.
-func (gs *GCSServer) Close() {
-	gs.server.Close()
 }
 
 const uploadPathPrefix = "/upload/storage/v1/b/"

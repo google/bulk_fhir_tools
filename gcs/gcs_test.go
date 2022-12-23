@@ -28,7 +28,6 @@ func TestGCSClientWritesResourceToGCS(t *testing.T) {
 	var resourceData = "testtest 2"
 
 	server := testhelpers.NewGCSServer(t)
-	defer server.Close()
 
 	ctx := context.Background()
 
@@ -71,7 +70,6 @@ func TestGCSClientReadsDataFromGCS(t *testing.T) {
 	var fileData = "{ value : 'hello' }"
 
 	server := testhelpers.NewGCSServer(t)
-	defer server.Close()
 	server.AddObject(bucketID, fileName, testhelpers.GCSObjectEntry{
 		Data: []byte(fileData),
 	})

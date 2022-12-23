@@ -16,18 +16,13 @@ package bulkfhir
 
 import (
 	"context"
-	"io"
-	"mime"
-	"mime/multipart"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/medical_claims_tools/internal/testhelpers"
 )
 
 func TestInMemoryTransactionTimeStore(t *testing.T) {
@@ -134,59 +129,13 @@ func TestLocalFileTransactionTimeStore(t *testing.T) {
 func TestGCSTransactionTimeStore(t *testing.T) {
 	ctx := context.Background()
 
-	var gcsFileContents []byte
-	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch req.URL.Path {
-		case "/sinceBucket/sinceFile":
-			if gcsFileContents == nil {
-				w.WriteHeader(http.StatusNotFound)
-			} else {
-				w.Write(gcsFileContents)
-			}
-		case "/upload/storage/v1/b/sinceBucket/o":
-			// We expect that the GCS upload request uses the multipart format, and
-			// look for a text/plain part.
-			//
-			// TODO(b/260404461): replace this with storage-testbench or a common GCS
-			//                    server implementation
-			_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
-			if err != nil {
-				t.Fatalf("failed to parse media type header: %v", err)
-			}
-			mr := multipart.NewReader(req.Body, params["boundary"])
-			gotContents := false
-			for {
-				p, err := mr.NextPart()
-				if err == io.EOF {
-					return
-				}
-				if err != nil {
-					t.Fatalf("failed to get next part: %v", err)
-				}
-				if strings.Contains(p.Header.Get("Content-Type"), "text/plain") {
-					data, err := io.ReadAll(p)
-					if err != nil {
-						t.Fatalf("failed to read request body: %v", err)
-					}
-					gcsFileContents = data
-					gotContents = true
-					break
-				}
-			}
-			if !gotContents {
-				t.Fatal("failed to extract file contents from GCS request")
-			}
-			w.Write([]byte("{}"))
-		default:
-			w.WriteHeader(http.StatusBadRequest)
-		}
-	}))
+	gcsServer := testhelpers.NewGCSServer(t)
 
 	sinceFile := "gs://sinceBucket/sinceFile"
 
-	s, err := NewGCSTransactionTimeStore(ctx, gcsServer.URL, sinceFile)
+	s, err := NewGCSTransactionTimeStore(ctx, gcsServer.URL(), sinceFile)
 	if err != nil {
-		t.Fatalf("unexpected error from NewGCSTransactionTimeStore(%q, %q)", gcsServer.URL, sinceFile)
+		t.Fatalf("unexpected error from NewGCSTransactionTimeStore(%q, %q)", gcsServer.URL(), sinceFile)
 	}
 
 	got, err := s.Load(ctx)
@@ -207,7 +156,12 @@ func TestGCSTransactionTimeStore(t *testing.T) {
 	// that timestamps are appended to the file, rather than replacing its
 	// contents
 
-	gotContents := string(gcsFileContents)
+	obj, ok := gcsServer.GetObject("sinceBucket", "sinceFile")
+	if !ok {
+		t.Fatalf("%s not found", sinceFile)
+	}
+
+	gotContents := string(obj.Data)
 
 	wantContents := "2022-11-25T14:54:33.000+00:00\n2022-11-26T14:51:22.000+00:00\n"
 

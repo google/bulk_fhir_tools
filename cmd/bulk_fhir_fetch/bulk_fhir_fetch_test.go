@@ -23,7 +23,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -870,26 +869,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 
 	jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
 
-	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		fileWritePath := ("/upload/storage/v1/b/" +
-			bucketName + "/o?alt=json&name=" +
-			url.QueryEscape(serverTransactionTime+"/"+"Patient_0.ndjson") +
-			"&prettyPrint=false&projection=full&uploadType=multipart")
-
-		if req.URL.String() != fileWritePath {
-			t.Errorf("gcs server got unexpected request. got: %v, want: %v", req.URL.String(), fileWritePath)
-		}
-		data, err := io.ReadAll(req.Body)
-		if err != nil {
-			t.Errorf("gcs server error reading body.")
-		}
-		if !bytes.Contains(data, file1Data) {
-			t.Errorf("gcs server unexpected data: got: %s, want: %s", data, file1Data)
-		}
-		// We have to write a response, else closing the file returns an EOF error,
-		// but the response doesn't actually need to contain anything.
-		w.Write([]byte(`{}`))
-	}))
+	gcsServer := testhelpers.NewGCSServer(t)
 
 	importCalled := false
 	statusCalled := false
@@ -934,7 +914,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	// performance improvement. A seperate test below tests that setting flags
 	// properly populates mainWrapperConfig.
 	cfg := mainWrapperConfig{
-		gcsEndpoint:                   gcsServer.URL,
+		gcsEndpoint:                   gcsServer.URL(),
 		fhirStoreEndpoint:             fhirStoreServer.URL,
 		clientID:                      "id",
 		clientSecret:                  "secret",
@@ -952,6 +932,15 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	// Run mainWrapper:
 	if err := mainWrapper(cfg); err != nil {
 		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	}
+
+	objName := serverTransactionTime + "/Patient_0.ndjson"
+	obj, ok := gcsServer.GetObject(bucketName, objName)
+	if !ok {
+		t.Fatalf("gs://%s/%s not found", bucketName, objName)
+	}
+	if !bytes.Contains(obj.Data, []byte(patient1)) {
+		t.Errorf("gcs server unexpected data: got: %s, want: %s", obj.Data, patient1)
 	}
 
 	if !importCalled {
@@ -1132,33 +1121,10 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 
 	jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
 
-	requestsSince := false
-	uploadsNewSince := false
-	gcsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-
-		requestSinceURL := "/sinceBucket/sinceFile"
-		uploadSinceURL := "/upload/storage/v1/b/sinceBucket/o"
-
-		switch req.URL.Path {
-		case requestSinceURL:
-			requestsSince = true
-			w.Write([]byte(since))
-		case uploadSinceURL:
-			uploadsNewSince = true
-			data, err := io.ReadAll(req.Body)
-			if err != nil {
-				t.Errorf("gcs server error reading body.")
-			}
-			if !bytes.Contains(data, []byte(serverTransactionTime)) {
-				t.Errorf(
-					"gcs server unexpected new since data; got: %s, want: %s", data, serverTransactionTime)
-			}
-			w.Write([]byte("{}"))
-		default:
-			w.WriteHeader(http.StatusBadRequest)
-		}
-
-	}))
+	gcsServer := testhelpers.NewGCSServer(t)
+	gcsServer.AddObject("sinceBucket", "sinceFile", testhelpers.GCSObjectEntry{
+		Data: []byte(since),
+	})
 
 	// Set mainWrapperConfig for this test case. In practice, values are
 	// populated in mainWrapperConfig from flags. Setting the config struct
@@ -1166,7 +1132,7 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	// performance improvement. A seperate test below tests that setting flags
 	// properly populates mainWrapperConfig.
 	cfg := mainWrapperConfig{
-		gcsEndpoint:   gcsServer.URL,
+		gcsEndpoint:   gcsServer.URL(),
 		clientID:      "id",
 		clientSecret:  "secret",
 		outputPrefix:  outputPrefix,
@@ -1179,11 +1145,12 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 	}
 
-	if !requestsSince {
-		t.Error("Expected bcda_fetch to request since file from GCS. But it was not requested.")
+	obj, ok := gcsServer.GetObject("sinceBucket", "sinceFile")
+	if !ok {
+		t.Errorf("gs://sinceBucket/sinceFile not found")
 	}
-	if !uploadsNewSince {
-		t.Error("Expected bcda_fetch to upload new since file to GCS. But it was not uploaded.")
+	if !bytes.Contains(obj.Data, []byte(serverTransactionTime)) {
+		t.Errorf("gcs server unexpected data in since file: got: %s, want: %s", obj.Data, []byte(serverTransactionTime))
 	}
 
 	// Check that files were also written to disk under outputPrefix
