@@ -46,6 +46,8 @@ var (
 	ErrorUnauthorized = errors.New("server indicates this client is unauthorized")
 	// ErrorTimeout indicates the operation timed out.
 	ErrorTimeout = errors.New("this operation timed out")
+	// ErrorExportJobNotFound indicates that the Job URL returned a 404 status.
+	ErrorExportJobNotFound = errors.New("job URL returned 404 not found")
 	// ErrorUnexpectedStatusCode indicates an unexpected status code was present.
 	ErrorUnexpectedStatusCode = errors.New("unexpected non-ok HTTP status code")
 	// ErrorGreaterThanOneContentLocation indicates more than 1 Content-Location header was present.
@@ -286,8 +288,10 @@ func (c *Client) JobStatus(jobStatusURL string) (st JobStatus, err error) {
 		return jobStatus, nil
 	case http.StatusUnauthorized:
 		return JobStatus{}, ErrorUnauthorized
+	case http.StatusNotFound:
+		return JobStatus{}, ErrorExportJobNotFound
 	default:
-		return JobStatus{}, fmt.Errorf("unexpected non-OK http status code: %d %w", resp.StatusCode, ErrorUnexpectedStatusCode)
+		return JobStatus{}, fmt.Errorf("%w: %d", ErrorUnexpectedStatusCode, resp.StatusCode)
 	}
 }
 
@@ -311,11 +315,16 @@ func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time
 	out := make(chan *MonitorResult, 100)
 	deadline := time.Now().Add(timeout)
 	go func() {
+		defer close(out)
 		var jobStatus JobStatus
 		var err error
 		for !jobStatus.IsComplete && time.Now().Before(deadline) {
 			jobStatus, err = c.JobStatus(jobStatusURL)
 			if err != nil {
+				if errors.Is(err, ErrorExportJobNotFound) {
+					out <- &MonitorResult{Error: err}
+					return
+				}
 				if errors.Is(err, ErrorUnauthorized) {
 					err = c.Authenticate()
 					if err != nil {
@@ -340,7 +349,6 @@ func (c *Client) MonitorJobStatus(jobStatusURL string, checkPeriod, timeout time
 		if !jobStatus.IsComplete {
 			out <- &MonitorResult{Error: ErrorTimeout}
 		}
-		close(out)
 	}()
 	return out
 }

@@ -157,7 +157,7 @@ func (f *Fetcher) waitForJob() (bulkfhir.JobStatus, error) {
 
 	jobStatus := monitorResult.Status
 	if !jobStatus.IsComplete {
-		return jobStatus, fmt.Errorf("Bulk FHIR export job did not finish before the timeout of %s", f.JobStatusTimeout)
+		return jobStatus, fmt.Errorf("Bulk FHIR export job did not finish before the timeout of %s: %w", f.JobStatusTimeout, monitorResult.Error)
 	}
 
 	log.Infof("Bulk FHIR export job finished. Transaction Time: %s", fhir.ToFHIRInstant(jobStatus.TransactionTime))

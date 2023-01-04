@@ -480,6 +480,27 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("not found", func(t *testing.T) {
+		period := time.Second
+		timeout := time.Minute
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		jobStatusURL := server.URL
+		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
+		results := []*MonitorResult{}
+		for st := range cl.MonitorJobStatus(jobStatusURL, period, timeout) {
+			results = append(results, st)
+		}
+		if len(results) != 1 {
+			t.Fatalf("MonitorJobStatus(%v,%v,%v) output %d results; want 1", jobStatusURL, period, timeout, len(results))
+		}
+		if got, want := results[len(results)-1].Error, ErrorExportJobNotFound; !errors.Is(got, want) {
+			t.Errorf("MonitorJobStatus(%v,%v,%v) did not output expected error. got: %v, want: %v", jobStatusURL, period, timeout, got, want)
+		}
+	})
+
 	t.Run("valid cases", func(t *testing.T) {
 		jobStatusURLSuffix := "/jobs/20"
 		wantResource := cpb.ResourceTypeCode_PATIENT
