@@ -27,7 +27,7 @@ import (
 )
 
 // DefaultCloudStorageEndpoint represents the default cloud storage API endpoint.
-// This should be passed to used unless in a test environment.
+// This should be passed to NewClient unless in a test environment.
 const DefaultCloudStorageEndpoint = "https://storage.googleapis.com/"
 
 // Client represents a GCS API client belonging to some project.
@@ -46,7 +46,7 @@ func NewClient(ctx context.Context, bucketName, endpointURL string) (Client, err
 	var err error
 
 	if endpointURL == DefaultCloudStorageEndpoint {
-		storageClient, err = storage.NewClient(ctx, option.WithEndpoint(endpointURL))
+		storageClient, err = storage.NewClient(ctx)
 	} else {
 		// When not using the default Cloud Storage endpoint, we provide an empty
 		// http.Client. This case is generally used in the test, so that the
