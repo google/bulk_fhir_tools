@@ -47,12 +47,13 @@ type gcsFileWriter struct {
 
 func (gfw *gcsFileWriter) writeFile(ctx context.Context, filename string, data []byte) (string, error) {
 	gcsPath := filepath.Join(gfw.directory, filename)
+	gcsURI := fmt.Sprintf("gs://%s/%s", gfw.bucket, gcsPath)
 	gcsObj := gfw.client.Bucket(gfw.bucket).Object(gcsPath)
 	attrs, err := gcsObj.Attrs(ctx)
 	needsUpload := true
 	if err != nil {
 		if !errors.Is(err, storage.ErrObjectNotExist) {
-			return "", err
+			return "", fmt.Errorf("error getting document attributes from %s: %w", gcsURI, err)
 		}
 	} else {
 		// The file exists, so check if the CRC32C checksum of the file matches. If
@@ -65,13 +66,13 @@ func (gfw *gcsFileWriter) writeFile(ctx context.Context, filename string, data [
 	if needsUpload {
 		w := gcsObj.NewWriter(ctx)
 		if _, err := w.Write(data); err != nil {
-			return "", err
+			return "", fmt.Errorf("error writing document to %s: %w", gcsURI, err)
 		}
 		if err := w.Close(); err != nil {
-			return "", err
+			return "", fmt.Errorf("error closing document %s: %w", gcsURI, err)
 		}
 	}
-	return fmt.Sprintf("gs://%s/%s", gfw.bucket, gcsPath), nil
+	return gcsURI, nil
 }
 
 type localFileWriter struct {
