@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ import (
 var (
 	clientID     = flag.String("client_id", "", "API client ID (required)")
 	clientSecret = flag.String("client_secret", "", "API client secret (required)")
-	outputPrefix = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written.")
+	outputPrefix = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path/filePrefix. At least a bucket and folder must be included, though the filePrefix is optional. If a prefix is not included, the path should end with a trailing /, for example gs://bucket/folder/")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
@@ -140,13 +141,23 @@ func mainWrapper(cfg mainWrapperConfig) error {
 
 	var sinks []processing.Sink
 	if cfg.outputPrefix != "" {
-		directory, filePrefix := filepath.Split(cfg.outputPrefix)
-		ndjsonSink, err := processing.NewNDJSONSink(ctx, directory, filePrefix)
-		if err != nil {
-			return fmt.Errorf("error making ndjson sink: %v", err)
+		if strings.HasPrefix(cfg.outputPrefix, "gs://") {
+			gcsSink, err := getGCSOutputSink(ctx, cfg.gcsEndpoint, cfg.outputPrefix)
+			if err != nil {
+				return fmt.Errorf("error making GCS output sink: %v", err)
+			}
+			sinks = append(sinks, gcsSink)
+		} else {
+			// Add a local directory NDJSON sink.
+			directory, filePrefix := filepath.Split(cfg.outputPrefix)
+			ndjsonSink, err := processing.NewNDJSONSink(ctx, directory, filePrefix)
+			if err != nil {
+				return fmt.Errorf("error making ndjson sink: %v", err)
+			}
+			sinks = append(sinks, ndjsonSink)
 		}
-		sinks = append(sinks, ndjsonSink)
 	}
+
 	if cfg.enableFHIRStore {
 		log.Infof("Data will also be uploaded to FHIR store based on provided parameters.")
 		fhirStoreSink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
@@ -232,6 +243,20 @@ func getTransactionTimeStore(ctx context.Context, cfg mainWrapperConfig) (bulkfh
 	}
 
 	return bulkfhir.NewInMemoryTransactionTimeStore("")
+}
+
+func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (processing.Sink, error) {
+	bucket, relativePath, err := gcs.PathComponents(gcsPathPrefix)
+	if err != nil {
+		return nil, err
+	}
+	filePrefix := path.Base(relativePath)
+	// If the path ends in "/" that indicates no prefix to be used.
+	if strings.HasSuffix(relativePath, "/") {
+		filePrefix = ""
+	}
+
+	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, path.Dir(relativePath), filePrefix)
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the

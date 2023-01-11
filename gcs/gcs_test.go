@@ -135,3 +135,58 @@ func TestJoinPath(t *testing.T) {
 		})
 	}
 }
+
+func TestGCSPathComponents(t *testing.T) {
+	cases := []struct {
+		name             string
+		gcsPath          string
+		wantBucket       string
+		wantRelativePath string
+		wantErr          error
+	}{
+		{
+			name:             "ValidGCSPath",
+			gcsPath:          "gs://testbucket/folder",
+			wantBucket:       "testbucket",
+			wantRelativePath: "folder",
+			wantErr:          nil,
+		},
+		{
+			name:             "ValidDeepGCSPath",
+			gcsPath:          "gs://testbucket/folder1/folder2/item",
+			wantBucket:       "testbucket",
+			wantRelativePath: "folder1/folder2/item",
+			wantErr:          nil,
+		},
+		{
+			name:             "InvalidGCSPathWithoutPrefix",
+			gcsPath:          "folder1/folder2/item",
+			wantBucket:       "",
+			wantRelativePath: "",
+			wantErr:          ErrInvalidGCSPath,
+		},
+		{
+			name:             "InvalidGCSPathWithoutFolder",
+			gcsPath:          "gs://testbucket",
+			wantBucket:       "",
+			wantRelativePath: "",
+			wantErr:          ErrInvalidGCSPath,
+		},
+		{
+			name:             "InvalidGCSPathWithoutFolderTrailingSlash",
+			gcsPath:          "gs://testbucket/",
+			wantBucket:       "",
+			wantRelativePath: "",
+			wantErr:          ErrInvalidGCSPath,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bucket, relativePath, err := PathComponents(tc.gcsPath)
+			if bucket != tc.wantBucket || relativePath != tc.wantRelativePath || err != tc.wantErr {
+				t.Errorf("PathComponents(%q) = (%q, %q, %v); want (%q, %q, %v)", tc.gcsPath, bucket, relativePath, err, tc.wantBucket, tc.wantRelativePath, tc.wantErr)
+			}
+		})
+	}
+}

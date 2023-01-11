@@ -18,6 +18,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -29,6 +30,9 @@ import (
 // DefaultCloudStorageEndpoint represents the default cloud storage API endpoint.
 // This should be passed to NewClient unless in a test environment.
 const DefaultCloudStorageEndpoint = "https://storage.googleapis.com/"
+
+// ErrInvalidGCSPath is an error indicating the GCS path is not valid.
+var ErrInvalidGCSPath = errors.New("the GCS path is not valid. a bucket and folder must be included, along with a gs:// prefix. For example gs://bucket/folder")
 
 // Client represents a GCS API client belonging to some project.
 type Client struct {
@@ -94,4 +98,18 @@ func JoinPath(elems ...string) string {
 		cleaned = append(cleaned, strings.Trim(strings.ReplaceAll(e, `\`, `/`), `/`))
 	}
 	return strings.Join(cleaned, `/`)
+}
+
+// PathComponents takes a GCS path (e.g. gs://some_bucket/relative/path) and returns the bucket name
+// and the relative path. For example, gs://some_bucket/relative/path would return some_bucket and
+// relative/path. At least a bucket and a folder must be included.
+func PathComponents(uri string) (bucket, relativePath string, err error) {
+	if !strings.HasPrefix(uri, "gs://") {
+		return "", "", ErrInvalidGCSPath
+	}
+	bucket, relativePath, ok := strings.Cut(strings.TrimPrefix(uri, "gs://"), "/")
+	if !ok || relativePath == "" {
+		return "", "", ErrInvalidGCSPath
+	}
+	return bucket, relativePath, nil
 }

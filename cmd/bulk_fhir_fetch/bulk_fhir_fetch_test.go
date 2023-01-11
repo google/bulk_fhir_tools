@@ -1170,6 +1170,94 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 
 }
 
+func TestMainWrapper_GCSOutputPrefix(t *testing.T) {
+	cases := []struct {
+		name                        string
+		outputPrefix                string
+		expectedGCSItemBucket       string
+		expectedGCSItemRelativePath string
+	}{
+		{
+			name:                        "NonEmptyPrefix",
+			outputPrefix:                "gs://fhirBucket/patients/prefix",
+			expectedGCSItemBucket:       "fhirBucket",
+			expectedGCSItemRelativePath: "patients/prefix_Patient_0.ndjson",
+		},
+		{
+			name:                        "EmptyPrefix",
+			outputPrefix:                "gs://fhirBucket/patients/",
+			expectedGCSItemBucket:       "fhirBucket",
+			expectedGCSItemRelativePath: "patients/Patient_0.ndjson",
+		},
+	}
+	t.Parallel()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+			file1Data := []byte(patient1)
+			exportEndpoint := "/api/v2/Group/all/$export"
+			jobStatusURLSuffix := "/api/v2/jobs/1234"
+			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+			// Setup BCDA test servers:
+
+			// A seperate resource server is needed during testing, so that we can send
+			// the jobsEndpoint response in the bcdaServer that includes a URL for the
+			// bcdaResourceServer in it.
+			bcdaResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Write(file1Data)
+			}))
+			defer bcdaResourceServer.Close()
+
+			jobStatusURL := ""
+			bcdaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/auth/token":
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
+				case exportEndpoint:
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+					w.WriteHeader(http.StatusAccepted)
+				case jobStatusURLSuffix:
+					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bcdaResourceServer.URL, serverTransactionTime)))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer bcdaServer.Close()
+
+			jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
+
+			gcsServer := testhelpers.NewGCSServer(t)
+
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A seperate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				gcsEndpoint:   gcsServer.URL(),
+				clientID:      "id",
+				clientSecret:  "secret",
+				outputPrefix:  tc.outputPrefix,
+				bcdaServerURL: bcdaServer.URL,
+				rectify:       true,
+			}
+			// Run mainWrapper:
+			if err := mainWrapper(cfg); err != nil {
+				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			}
+
+			obj, ok := gcsServer.GetObject(tc.expectedGCSItemBucket, tc.expectedGCSItemRelativePath)
+			if !ok {
+				t.Errorf("gs://%s/%s not found", tc.expectedGCSItemBucket, tc.expectedGCSItemRelativePath)
+			}
+			if !bytes.Contains(obj.Data, file1Data) {
+				t.Errorf("gcs server unexpected data in prefix_Patient_0 file: got: %s, want: %s", obj.Data, file1Data)
+			}
+		})
+	}
+}
+
 func TestBuildMainWrapperConfig(t *testing.T) {
 	// Set every flag, and see that it is built into mainWrapper correctly.
 	defer SaveFlags().Restore()

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	log "github.com/golang/glog"
@@ -160,8 +159,10 @@ func (gtts *gcsTransactionTimeStore) copyPreviousContent(ctx context.Context, wr
 // line is appended to the file on each run, so that the entire history of
 // transaction times may be seen.
 func NewGCSTransactionTimeStore(ctx context.Context, gcsEndpoint, uri string) (TransactionTimeStore, error) {
-	pieces := strings.SplitN(strings.TrimPrefix(uri, "gs://"), "/", 2)
-	bucket, relativePath := pieces[0], pieces[1]
+	bucket, relativePath, err := gcs.PathComponents(uri)
+	if err != nil {
+		return nil, err
+	}
 	client, err := gcs.NewClient(ctx, bucket, gcsEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GCS client: %w", err)
