@@ -42,50 +42,473 @@ type gcsImportRequest struct {
 	GCSSource        gcsSource `json:"gcsSource"`
 }
 
-// Note: this is a really basic test given directFHIRStoreSink is a thin shim.
-// Comprehensive testing is done on the underlying uploader.
-//
-// TODO(b/254648498): remove this test once fhirstore.Uploader fulfils the Sink interface.
 func TestDirectFHIRStoreSink(t *testing.T) {
-	ctx := context.Background()
+	cases := []struct {
+		name                string
+		setFHIRErrorFileDir bool
+	}{
+		{name: "WithErrorFileDir", setFHIRErrorFileDir: true},
+		{name: "NoErrorFileDir", setFHIRErrorFileDir: false},
+	}
 
-	patient1 := []byte(`{"resourceType":"Patient","id":"PatientID1"}`)
-	gcpProject := "project"
-	gcpLocation := "location"
-	gcpDatasetID := "dataset"
-	gcpFHIRStoreID := "fhirID"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resources := []testhelpers.FHIRStoreTestResource{
+				{
+					ResourceID:       "PatientID",
+					ResourceType:     "Patient",
+					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+					Data:             []byte(`{"resourceType":"Patient","id":"PatientID"}`),
+				},
+				{
+					ResourceID:       "PatientID2",
+					ResourceType:     "Patient",
+					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+					Data:             []byte(`{"resourceType":"Patient","id":"PatientID2"}`),
+				},
+				{
+					ResourceID:       "PatientID3",
+					ResourceType:     "Patient",
+					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+					Data:             []byte(`{"resourceType":"Patient","id":"PatientID3"}`),
+				},
+				{
+					ResourceID:       "CoverageID",
+					ResourceType:     "Coverage",
+					ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
+					Data:             []byte(`{"resourceType": "Coverage", "id": "CoverageID", "contract": [{"reference": "Contract/part-a-contract1"}]}`),
+				},
+				{
+					ResourceID:       "CoverageID2",
+					ResourceType:     "Coverage",
+					ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
+					Data:             []byte(`{"resourceType": "Coverage", "id": "CoverageID2", "contract": [{"reference": "Contract/part-a-contract1"}]}`),
+				},
+			}
 
-	expectedResources := []testhelpers.FHIRStoreTestResource{
+			fhirStoreProjectID := "test"
+			fhirStoreLocation := "loc"
+			fhirStoreDatasetID := "dataset"
+			fhirStoreID := "fhirstore"
+
+			testServerURL := testhelpers.FHIRStoreServer(t, resources, fhirStoreProjectID, fhirStoreLocation, fhirStoreDatasetID, fhirStoreID)
+
+			numWorkers := 2
+			outputPrefix := ""
+			if tc.setFHIRErrorFileDir {
+				outputPrefix = t.TempDir()
+			}
+			ctx := context.Background()
+			sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
+				FHIRStoreEndpoint:   testServerURL,
+				FHIRProjectID:       fhirStoreProjectID,
+				FHIRLocation:        fhirStoreLocation,
+				FHIRDatasetID:       fhirStoreDatasetID,
+				FHIRStoreID:         fhirStoreID,
+				MaxWorkers:          numWorkers,
+				ErrorFileOutputPath: outputPrefix,
+			})
+			if err != nil {
+				t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
+			}
+			p, err := processing.NewPipeline(nil, []processing.Sink{sink})
+			if err != nil {
+				t.Fatalf("failed to create pipeline: %v", err)
+			}
+
+			for _, r := range resources {
+				if err := p.Process(ctx, r.ResourceTypeCode, r.ResourceTypeCode.String(), r.Data); err != nil {
+					t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+				}
+			}
+			if err := p.Finalize(ctx); err != nil {
+				t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
+			}
+
+			// At the end of the test, testhelpers.FHIRStoreServer will automatically
+			// ensure that all resources in the resources slice were uploaded to the
+			// server.
+		})
+	}
+}
+
+func TestDirectFHIRStoreSink_Batch(t *testing.T) {
+	cases := []struct {
+		name                  string
+		batchSize             int
+		expectedFullBatchSize int
+		setFHIRErrorFileDir   bool
+	}{
+		{name: "WithErrorFileDir", setFHIRErrorFileDir: true, batchSize: 2, expectedFullBatchSize: 2},
+		{name: "NoErrorFileDir", setFHIRErrorFileDir: false, batchSize: 2, expectedFullBatchSize: 2},
+		// Test different batch sizes, without multiplexing over
+		// setFHIRErrorFileDir.
+		{name: "WithBatchSize1", batchSize: 1, expectedFullBatchSize: 1},
+		{name: "WithBatchSize2", batchSize: 2, expectedFullBatchSize: 2},
+		{name: "WithBatchSize3", batchSize: 3, expectedFullBatchSize: 3},
+		{name: "WithBatchSize4", batchSize: 4, expectedFullBatchSize: 4},
+		{name: "WithBatchSize5", batchSize: 5, expectedFullBatchSize: 4},
+	}
+
+	resources := []testhelpers.FHIRStoreTestResource{
 		{
-			ResourceID:   "PatientID1",
-			ResourceType: "Patient",
-			Data:         patient1,
+			ResourceID:       "1",
+			ResourceType:     "Patient",
+			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
+		},
+		{
+			ResourceID:       "2",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "3",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "4",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
 		},
 	}
 
-	fhirStoreEndpoint := testhelpers.FHIRStoreServer(t, expectedResources, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
+	inputJSONs := [][]byte{}
+	for _, r := range resources {
+		inputJSONs = append(inputJSONs, r.Data)
+	}
+	projectID := "projectID"
+	location := "us-east1"
+	datasetID := "datasetID"
+	fhirStoreID := "fhirstoreID"
 
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			serverURL := testhelpers.FHIRStoreServerBatch(t, inputJSONs, tc.expectedFullBatchSize, projectID, location, datasetID, fhirStoreID)
+			numWorkers := 1
+			outputPrefix := ""
+			if tc.setFHIRErrorFileDir {
+				outputPrefix = t.TempDir()
+			}
+			ctx := context.Background()
+			sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
+				FHIRStoreEndpoint:   serverURL,
+				FHIRProjectID:       projectID,
+				FHIRLocation:        location,
+				FHIRDatasetID:       datasetID,
+				FHIRStoreID:         fhirStoreID,
+				MaxWorkers:          numWorkers,
+				ErrorFileOutputPath: outputPrefix,
+				BatchUpload:         true,
+				BatchSize:           tc.batchSize,
+			})
+			if err != nil {
+				t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
+			}
+			p, err := processing.NewPipeline(nil, []processing.Sink{sink})
+			if err != nil {
+				t.Fatalf("failed to create pipeline: %v", err)
+			}
+
+			for _, r := range resources {
+				if err := p.Process(ctx, r.ResourceTypeCode, r.ResourceTypeCode.String(), r.Data); err != nil {
+					t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+				}
+			}
+			if err := p.Finalize(ctx); err != nil {
+				t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
+			}
+			// At the end of the test, testhelpers.FHIRStoreServerBatch will
+			// automatically ensure that all resources in the resources slice were
+			// uploaded to the server.
+		})
+	}
+}
+
+type fhirBundle struct {
+	ResourceType string  `json:"resourceType"`
+	Type         string  `json:"type"`
+	Entry        []entry `json:"entry"`
+}
+
+type entry struct {
+	Resource json.RawMessage `json:"resource"`
+}
+
+func TestDirectFHIRStoreSink_BatchDefaultBatchSize(t *testing.T) {
+	// This tests that if FHIRStoreSinkConfig.BatchSize = 0, then a default batchSize
+	// of 5 is used.
+
+	resources := []testhelpers.FHIRStoreTestResource{
+		{
+			ResourceID:       "1",
+			ResourceType:     "Patient",
+			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
+		},
+		{
+			ResourceID:       "2",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "3",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "4",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "5",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"5","resourceType":"ExplanationOfBenefit"}`),
+		},
+	}
+
+	projectID := "projectID"
+	location := "us-east1"
+	datasetID := "datasetID"
+	fhirStoreID := "fhirstoreID"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		bundlePath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir?", projectID, location, datasetID, fhirStoreID)
+		if req.URL.String() != bundlePath {
+			t.Errorf("FHIR store test server got call to unexpected URL. got: %v, want: %v", req.URL.String(), bundlePath)
+		}
+		if req.Method != http.MethodPost {
+			t.Errorf("FHIR Store test server unexpected HTTP method. got: %v, want: %v", req.Method, http.MethodPost)
+		}
+
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("unable to read executeBundle request body")
+		}
+		var gotBundle fhirBundle
+		err = json.Unmarshal(data, &gotBundle)
+		if err != nil {
+			t.Fatalf("unable to unmarshal executeBundle request body")
+		}
+		if gotBundle.Type != "batch" {
+			t.Errorf("unexpected bundle type, got: %v, want: batch", gotBundle.Type)
+		}
+		if len(gotBundle.Entry) != 5 {
+			t.Errorf("unexpected batch size. got: %v, want: %v", len(gotBundle.Entry), 5)
+		}
+	}))
+	numWorkers := 1
+
+	ctx := context.Background()
 	sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-		FHIRStoreEndpoint: fhirStoreEndpoint,
-		FHIRStoreID:       gcpFHIRStoreID,
-		FHIRProjectID:     gcpProject,
-		FHIRLocation:      gcpLocation,
-		FHIRDatasetID:     gcpDatasetID,
-		MaxWorkers:        10,
+		FHIRStoreEndpoint: server.URL,
+		FHIRProjectID:     projectID,
+		FHIRLocation:      location,
+		FHIRDatasetID:     datasetID,
+		FHIRStoreID:       fhirStoreID,
+		MaxWorkers:        numWorkers,
+		BatchUpload:       true,
+		BatchSize:         0, // BatchSize of 0 in the config should lead to a default of 5 in NewFHIRStoreSink
 	})
 	if err != nil {
-		t.Fatalf("failed to create sink: %v", err)
+		t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
 	}
 	p, err := processing.NewPipeline(nil, []processing.Sink{sink})
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
 
-	if err := p.Process(ctx, cpb.ResourceTypeCode_PATIENT, "url1", patient1); err != nil {
-		t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+	for _, r := range resources {
+		if err := p.Process(ctx, r.ResourceTypeCode, r.ResourceTypeCode.String(), r.Data); err != nil {
+			t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+		}
 	}
 	if err := p.Finalize(ctx); err != nil {
 		t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
+	}
+}
+
+func TestDirectFHIRStoreSink_BatchErrors(t *testing.T) {
+	cases := []struct {
+		name                string
+		batchSize           int
+		setFHIRErrorFileDir bool
+	}{
+		{name: "WithErrorFileDir", setFHIRErrorFileDir: true, batchSize: 2},
+		{name: "NoErrorFileDir", setFHIRErrorFileDir: false, batchSize: 2},
+	}
+
+	resources := []testhelpers.FHIRStoreTestResource{
+		{
+			ResourceID:       "1",
+			ResourceType:     "Patient",
+			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
+		},
+		{
+			ResourceID:       "2",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "3",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
+		},
+		{
+			ResourceID:       "4",
+			ResourceType:     "ExplanationOfBenefit",
+			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
+		},
+	}
+
+	projectID := "projectID"
+	location := "us-east1"
+	datasetID := "datasetID"
+	fhirStoreID := "fhirstoreID"
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			numWorkers := 2
+			outputPrefix := ""
+			if tc.setFHIRErrorFileDir {
+				outputPrefix = t.TempDir()
+			}
+
+			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(500)
+			}))
+			defer testServer.Close()
+
+			ctx := context.Background()
+			sink, err := processing.NewFHIRStoreSink(context.Background(), &processing.FHIRStoreSinkConfig{
+				FHIRStoreEndpoint:    testServer.URL,
+				FHIRProjectID:        projectID,
+				FHIRLocation:         location,
+				FHIRDatasetID:        datasetID,
+				FHIRStoreID:          fhirStoreID,
+				MaxWorkers:           numWorkers,
+				ErrorFileOutputPath:  outputPrefix,
+				BatchUpload:          true,
+				BatchSize:            tc.batchSize,
+				NoFailOnUploadErrors: true,
+			})
+			if err != nil {
+				t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
+			}
+			p, err := processing.NewPipeline(nil, []processing.Sink{sink})
+			if err != nil {
+				t.Fatalf("failed to create pipeline: %v", err)
+			}
+
+			for _, r := range resources {
+				if err := p.Process(ctx, r.ResourceTypeCode, r.ResourceTypeCode.String(), r.Data); err != nil {
+					t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+				}
+			}
+			if err := p.Finalize(ctx); err != nil {
+				t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
+			}
+
+			if tc.setFHIRErrorFileDir {
+				expectedErrors := make([]testhelpers.ErrorNDJSONLine, len(resources))
+				for i, r := range resources {
+					expectedErrors[i] = testhelpers.ErrorNDJSONLine{Err: "error from API server: status 500 500 Internal Server Error: ", FHIRResource: string(r.Data)}
+				}
+				testhelpers.CheckErrorNDJSONFile(t, outputPrefix, expectedErrors)
+			}
+		})
+	}
+}
+
+func TestDirectFHIRStoreSink_Errors(t *testing.T) {
+	cases := []struct {
+		name            string
+		setOutputPrefix bool
+	}{
+		{name: "WithOutputPrefix", setOutputPrefix: true},
+		{name: "NoOutputPrefix", setOutputPrefix: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resources := []testhelpers.FHIRStoreTestResource{
+				{
+					ResourceID:       "PatientID",
+					ResourceType:     "Patient",
+					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+					Data:             []byte(`{"resourceType":"Patient","id":"PatientID"}`),
+				},
+				{
+					ResourceID:       "PatientID1",
+					ResourceType:     "Patient",
+					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+					Data:             []byte(`{"resourceType":"Patient","id":"PatientID1"}`),
+				},
+			}
+
+			fhirStoreProjectID := "test"
+			fhirStoreLocation := "loc"
+			fhirStoreDatasetID := "dataset"
+			fhirStoreID := "fhirstore"
+
+			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(500)
+			}))
+			defer testServer.Close()
+
+			numWorkers := 2
+			outputPrefix := ""
+			if tc.setOutputPrefix {
+				outputPrefix = t.TempDir()
+			}
+			ctx := context.Background()
+			sink, err := processing.NewFHIRStoreSink(context.Background(), &processing.FHIRStoreSinkConfig{
+				FHIRStoreEndpoint:    testServer.URL,
+				FHIRProjectID:        fhirStoreProjectID,
+				FHIRLocation:         fhirStoreLocation,
+				FHIRDatasetID:        fhirStoreDatasetID,
+				FHIRStoreID:          fhirStoreID,
+				MaxWorkers:           numWorkers,
+				ErrorFileOutputPath:  outputPrefix,
+				NoFailOnUploadErrors: true,
+			})
+			if err != nil {
+				t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
+			}
+			p, err := processing.NewPipeline(nil, []processing.Sink{sink})
+			if err != nil {
+				t.Fatalf("failed to create pipeline: %v", err)
+			}
+
+			for _, r := range resources {
+				if err := p.Process(ctx, r.ResourceTypeCode, r.ResourceTypeCode.String(), r.Data); err != nil {
+					t.Fatalf("pipeline.Process() returned unexpected error: %v", err)
+				}
+			}
+			if err := p.Finalize(ctx); err != nil {
+				t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
+			}
+
+			if tc.setOutputPrefix {
+				expectedErrors := make([]testhelpers.ErrorNDJSONLine, len(resources))
+				for i, r := range resources {
+					expectedErrors[i] = testhelpers.ErrorNDJSONLine{Err: "error from API server: status 500 500 Internal Server Error:  error was received from the Healthcare API server", FHIRResource: string(r.Data)}
+				}
+				testhelpers.CheckErrorNDJSONFile(t, outputPrefix, expectedErrors)
+			}
+		})
 	}
 }
 

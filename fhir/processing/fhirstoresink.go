@@ -16,8 +16,12 @@ package processing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path"
+	"sync"
 	"time"
 
 	log "github.com/golang/glog"
@@ -31,35 +35,69 @@ import (
 // failed. It is primarily used to detect this specific failure in tests.
 var ErrUploadFailures = errors.New("non-zero FHIR store upload errors")
 
-// directFHIRStoreSink is a thin shim around fhirstore.Uploader to translate the
-// Sink interface. Once bulk_fhir_fetch is migrated to use the processing
-// library, fhirstore.Uploader will be updated to directly implement Sink.
-//
-// TODO(b/254648498): migrate fhirstore.Uploader to fulfil the Sink interface.
+// defaultBatchSize is the deafult batch size for FHIR store uploads in batch
+// mode.
+const defaultBatchSize = 5
+
+// directFHIRStoreSink implements the processing.Sink interface to upload
+// resources directly to FHIR store, either individually or batched.
 type directFHIRStoreSink struct {
-	uploader             *fhirstore.Uploader
-	errorCounter         *counter.Counter
+	fhirStoreEndpoint  string
+	fhirStoreProjectID string
+	fhirStoreLocation  string
+	fhirStoreDatasetID string
+	fhirStoreID        string
+
+	// batchUpload indicates if fhirJSONs should be uploaded to FHIR store in
+	// batches using executeBundle in batch mode.
+	batchUpload bool
+	batchSize   int
+
+	errorCounter *counter.Counter
+
+	fhirJSONs  chan string
+	maxWorkers int
+	wg         *sync.WaitGroup
+
 	noFailOnUploadErrors bool
+	errorFileOutputPath  string
+
+	errNDJSONFileMut sync.Mutex
+	errorNDJSONFile  *os.File
 }
 
-// Write is Sink.Write. This calls through to the underlying Uploader's Upload
-// method.
+func (dfss *directFHIRStoreSink) init(ctx context.Context) {
+	dfss.fhirJSONs = make(chan string, 100)
+	dfss.wg = &sync.WaitGroup{}
+
+	for i := 0; i < dfss.maxWorkers; i++ {
+		if dfss.batchUpload {
+			go dfss.uploadBatchWorker(ctx)
+		} else {
+			go dfss.uploadWorker(ctx)
+		}
+	}
+}
+
+// Write is Sink.Write. The provided resource is written to FHIR Store.
 func (dfss *directFHIRStoreSink) Write(ctx context.Context, resource ResourceWrapper) error {
 	json, err := resource.JSON()
 	if err != nil {
 		return err
 	}
-	dfss.uploader.Upload(json)
+	dfss.wg.Add(1)
+	dfss.fhirJSONs <- string(json)
 	return nil
 }
 
-// Finalize is Sink.Finalize. This calls DoneUploading and Wait on the
-// underlying uploader.
+// Finalize is Sink.Finalize. This waits for all resources to be written to FHIR
+// Store before returning. It may return an error if there was an issue writing
+// resources (if NoFailOnUploadErrors was set when the sink was created), or if
+// there was an issue closing the error file (if ErrorFileOutputPath was set
+// when the sink was created).
 func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
-	dfss.uploader.DoneUploading()
-	if err := dfss.uploader.Wait(); err != nil {
-		return err
-	}
+	close(dfss.fhirJSONs)
+	dfss.wg.Wait()
 	if errCnt := dfss.errorCounter.CloseAndGetCount(); errCnt > 0 {
 		if dfss.noFailOnUploadErrors {
 			log.Warningf("%v: %d", ErrUploadFailures, errCnt)
@@ -67,7 +105,98 @@ func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 			return fmt.Errorf("%w: %d", ErrUploadFailures, errCnt)
 		}
 	}
+	if dfss.errorNDJSONFile != nil {
+		return dfss.errorNDJSONFile.Close()
+	}
 	return nil
+}
+
+func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
+	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreEndpoint)
+	if err != nil {
+		log.Exitf("error initializing FHIR store client: %v", err)
+	}
+
+	for fhirJSON := range dfss.fhirJSONs {
+		err := c.UploadResource([]byte(fhirJSON), dfss.fhirStoreProjectID, dfss.fhirStoreLocation, dfss.fhirStoreDatasetID, dfss.fhirStoreID)
+		if err != nil {
+			// TODO(b/211490544): consider adding an auto-retrying mechanism in the
+			// future.
+			log.Errorf("error uploading resource: %v", err)
+			if dfss.errorCounter != nil {
+				dfss.errorCounter.Increment()
+			}
+			dfss.writeError(fhirJSON, err)
+		}
+		dfss.wg.Done()
+	}
+}
+
+func (dfss *directFHIRStoreSink) uploadBatchWorker(ctx context.Context) {
+	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreEndpoint)
+	if err != nil {
+		log.Exitf("error initializing FHIR store client: %v", err)
+	}
+
+	fhirBatchBuffer := make([][]byte, dfss.batchSize)
+	lastChannelReadOK := true
+	for lastChannelReadOK {
+		var fhirJSON string
+		numBufferItemsPopulated := 0
+		// Attempt to populate the fhirBatchBuffer. Note that this could populate
+		// from 0 up to dfss.batchSize elements before lastChannelReadOK is false.
+		for i := 0; i < dfss.batchSize; i++ {
+			fhirJSON, lastChannelReadOK = <-dfss.fhirJSONs
+			if !lastChannelReadOK {
+				break
+			}
+			fhirBatchBuffer[i] = []byte(fhirJSON)
+			numBufferItemsPopulated++
+		}
+
+		if numBufferItemsPopulated == 0 {
+			break
+		}
+
+		fhirBatch := fhirBatchBuffer[0:numBufferItemsPopulated]
+
+		// Upload batch
+		if err := c.UploadBatch(fhirBatch, dfss.fhirStoreProjectID, dfss.fhirStoreLocation, dfss.fhirStoreDatasetID, dfss.fhirStoreID); err != nil {
+			log.Errorf("error uploading batch: %v", err)
+			// TODO(b/225916126): in the future, try to unpack the error and only
+			// write out the resources within the bundle that failed. For now, we
+			// write out all resources in the bundle to be safe.
+			for _, errResource := range fhirBatch {
+				if dfss.errorCounter != nil {
+					dfss.errorCounter.Increment()
+				}
+				dfss.writeError(string(errResource), err)
+			}
+		}
+
+		for j := 0; j < numBufferItemsPopulated; j++ {
+			dfss.wg.Done()
+		}
+	}
+}
+
+func (dfss *directFHIRStoreSink) writeError(fhirJSON string, err error) {
+	if dfss.errorNDJSONFile != nil {
+		data, jsonErr := json.Marshal(errorNDJSONLine{Err: err.Error(), FHIRResource: fhirJSON})
+		if jsonErr != nil {
+			log.Errorf("error marshaling data to write to error file: %v", jsonErr)
+			return
+		}
+		dfss.errNDJSONFileMut.Lock()
+		defer dfss.errNDJSONFileMut.Unlock()
+		dfss.errorNDJSONFile.Write(data)
+		dfss.errorNDJSONFile.Write([]byte("\n"))
+	}
+}
+
+type errorNDJSONLine struct {
+	Err          string `json:"err"`
+	FHIRResource string `json:"fhir_resource"`
 }
 
 // gcsBasedFHIRStoreSink wraps an ndjsonSink which writes files to GCS, and then
@@ -194,50 +323,67 @@ type FHIRStoreSinkConfig struct {
 	TransactionTime     *bulkfhir.TransactionTime
 }
 
+func newGCSBasedFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
+	fhirStoreClient, err := fhirstore.NewClient(ctx, cfg.FHIRStoreEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	return &gcsBasedFHIRStoreSink{
+		// Used only for deferred initialisation of the ndjsonSink
+		ndjsonSinkCtx:         ctx,
+		fhirStoreClient:       fhirStoreClient,
+		fhirStoreID:           cfg.FHIRStoreID,
+		fhirStoreGCPProject:   cfg.FHIRProjectID,
+		fhirStoreGCPLocation:  cfg.FHIRLocation,
+		fhirStoreGCPDatasetID: cfg.FHIRDatasetID,
+		transactionTime:       cfg.TransactionTime,
+		gcsEndpoint:           cfg.GCSEndpoint,
+		gcsBucket:             cfg.GCSBucket,
+		gcsImportJobTimeout:   cfg.GCSImportJobTimeout,
+		gcsImportJobPeriod:    cfg.GCSImportJobPeriod,
+		noFailOnUploadErrors:  cfg.NoFailOnUploadErrors,
+	}, nil
+}
+
+// newDirectFHIRStoreSink initializes and returns a directFHIRStoreSink.
+func newDirectFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
+	batchSize := defaultBatchSize
+	if cfg.BatchSize != 0 {
+		batchSize = cfg.BatchSize
+	}
+
+	dfss := &directFHIRStoreSink{
+		fhirStoreEndpoint:    cfg.FHIRStoreEndpoint,
+		fhirStoreProjectID:   cfg.FHIRProjectID,
+		fhirStoreLocation:    cfg.FHIRLocation,
+		fhirStoreDatasetID:   cfg.FHIRDatasetID,
+		fhirStoreID:          cfg.FHIRStoreID,
+		errorCounter:         counter.New(),
+		maxWorkers:           cfg.MaxWorkers,
+		noFailOnUploadErrors: cfg.NoFailOnUploadErrors,
+		errorFileOutputPath:  cfg.ErrorFileOutputPath,
+		batchUpload:          cfg.BatchUpload,
+		batchSize:            batchSize,
+	}
+
+	if cfg.ErrorFileOutputPath != "" {
+		f, err := os.OpenFile(path.Join(cfg.ErrorFileOutputPath, "resourcesWithErrors.ndjson"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, err
+		}
+		dfss.errorNDJSONFile = f
+	}
+
+	dfss.init(ctx)
+
+	return dfss, nil
+}
+
 // NewFHIRStoreSink creates a new Sink which writes resources to FHIR Store,
 // either directly or via GCS.
 func NewFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
 	if cfg.UseGCSUpload {
-		fhirStoreClient, err := fhirstore.NewClient(ctx, cfg.FHIRStoreEndpoint)
-		if err != nil {
-			return nil, err
-		}
-		return &gcsBasedFHIRStoreSink{
-			// Used only for deferred initialisation of the ndjsonSink
-			ndjsonSinkCtx:         ctx,
-			fhirStoreClient:       fhirStoreClient,
-			fhirStoreID:           cfg.FHIRStoreID,
-			fhirStoreGCPProject:   cfg.FHIRProjectID,
-			fhirStoreGCPLocation:  cfg.FHIRLocation,
-			fhirStoreGCPDatasetID: cfg.FHIRDatasetID,
-			transactionTime:       cfg.TransactionTime,
-			gcsEndpoint:           cfg.GCSEndpoint,
-			gcsBucket:             cfg.GCSBucket,
-			gcsImportJobTimeout:   cfg.GCSImportJobTimeout,
-			gcsImportJobPeriod:    cfg.GCSImportJobPeriod,
-			noFailOnUploadErrors:  cfg.NoFailOnUploadErrors,
-		}, nil
+		return newGCSBasedFHIRStoreSink(ctx, cfg)
 	}
-
-	errorCounter := counter.New()
-	uploader, err := fhirstore.NewUploader(ctx, fhirstore.UploaderConfig{
-		FHIRStoreEndpoint:   cfg.FHIRStoreEndpoint,
-		FHIRStoreID:         cfg.FHIRStoreID,
-		FHIRProjectID:       cfg.FHIRProjectID,
-		FHIRLocation:        cfg.FHIRLocation,
-		FHIRDatasetID:       cfg.FHIRDatasetID,
-		MaxWorkers:          cfg.MaxWorkers,
-		ErrorCounter:        errorCounter,
-		ErrorFileOutputPath: cfg.ErrorFileOutputPath,
-		BatchUpload:         cfg.BatchUpload,
-		BatchSize:           cfg.BatchSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &directFHIRStoreSink{
-		uploader:             uploader,
-		errorCounter:         errorCounter,
-		noFailOnUploadErrors: cfg.NoFailOnUploadErrors,
-	}, nil
+	return newDirectFHIRStoreSink(ctx, cfg)
 }

@@ -32,14 +32,18 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 // FHIRStoreTestResource represents a test FHIR resource to be uploaded to
 // FHIR store.
 type FHIRStoreTestResource struct {
-	ResourceID   string
-	ResourceType string
-	Data         []byte
+	ResourceID string
+	// TODO(b/264649330): migrate to use ResourceTypeCode everywhere and remove ResourceType
+	ResourceType     string
+	ResourceTypeCode cpb.ResourceTypeCode_Value
+	Data             []byte
 }
 
 // FHIRStoreServer creates a test FHIR store server that expects the provided
