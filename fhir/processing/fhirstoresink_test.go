@@ -56,31 +56,26 @@ func TestDirectFHIRStoreSink(t *testing.T) {
 			resources := []testhelpers.FHIRStoreTestResource{
 				{
 					ResourceID:       "PatientID",
-					ResourceType:     "Patient",
 					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 					Data:             []byte(`{"resourceType":"Patient","id":"PatientID"}`),
 				},
 				{
 					ResourceID:       "PatientID2",
-					ResourceType:     "Patient",
 					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 					Data:             []byte(`{"resourceType":"Patient","id":"PatientID2"}`),
 				},
 				{
 					ResourceID:       "PatientID3",
-					ResourceType:     "Patient",
 					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 					Data:             []byte(`{"resourceType":"Patient","id":"PatientID3"}`),
 				},
 				{
 					ResourceID:       "CoverageID",
-					ResourceType:     "Coverage",
 					ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
 					Data:             []byte(`{"resourceType": "Coverage", "id": "CoverageID", "contract": [{"reference": "Contract/part-a-contract1"}]}`),
 				},
 				{
 					ResourceID:       "CoverageID2",
-					ResourceType:     "Coverage",
 					ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
 					Data:             []byte(`{"resourceType": "Coverage", "id": "CoverageID2", "contract": [{"reference": "Contract/part-a-contract1"}]}`),
 				},
@@ -153,25 +148,21 @@ func TestDirectFHIRStoreSink_Batch(t *testing.T) {
 	resources := []testhelpers.FHIRStoreTestResource{
 		{
 			ResourceID:       "1",
-			ResourceType:     "Patient",
 			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
 		},
 		{
 			ResourceID:       "2",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "3",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "4",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
 		},
@@ -246,31 +237,26 @@ func TestDirectFHIRStoreSink_BatchDefaultBatchSize(t *testing.T) {
 	resources := []testhelpers.FHIRStoreTestResource{
 		{
 			ResourceID:       "1",
-			ResourceType:     "Patient",
 			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
 		},
 		{
 			ResourceID:       "2",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "3",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "4",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "5",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"5","resourceType":"ExplanationOfBenefit"}`),
 		},
@@ -349,25 +335,21 @@ func TestDirectFHIRStoreSink_BatchErrors(t *testing.T) {
 	resources := []testhelpers.FHIRStoreTestResource{
 		{
 			ResourceID:       "1",
-			ResourceType:     "Patient",
 			ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 			Data:             []byte(`{"id":"1","resourceType":"Patient"}`),
 		},
 		{
 			ResourceID:       "2",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"2","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "3",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"3","resourceType":"ExplanationOfBenefit"}`),
 		},
 		{
 			ResourceID:       "4",
-			ResourceType:     "ExplanationOfBenefit",
 			ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 			Data:             []byte(`{"id":"4","resourceType":"ExplanationOfBenefit"}`),
 		},
@@ -446,13 +428,11 @@ func TestDirectFHIRStoreSink_Errors(t *testing.T) {
 			resources := []testhelpers.FHIRStoreTestResource{
 				{
 					ResourceID:       "PatientID",
-					ResourceType:     "Patient",
 					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 					Data:             []byte(`{"resourceType":"Patient","id":"PatientID"}`),
 				},
 				{
 					ResourceID:       "PatientID1",
-					ResourceType:     "Patient",
 					ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
 					Data:             []byte(`{"resourceType":"Patient","id":"PatientID1"}`),
 				},

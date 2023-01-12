@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"testing"
 
@@ -39,9 +40,7 @@ import (
 // FHIRStoreTestResource represents a test FHIR resource to be uploaded to
 // FHIR store.
 type FHIRStoreTestResource struct {
-	ResourceID string
-	// TODO(b/264649330): migrate to use ResourceTypeCode everywhere and remove ResourceType
-	ResourceType     string
+	ResourceID       string
 	ResourceTypeCode cpb.ResourceTypeCode_Value
 	Data             []byte
 }
@@ -57,7 +56,7 @@ func FHIRStoreServer(t *testing.T, expectedResources []FHIRStoreTestResource, pr
 	var expectedResourceWasUploadedMutex sync.Mutex
 	expectedResourceWasUploaded := make([]bool, len(expectedResources))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		expectedResource, expectedResourceIdx := validateURLAndMatchResource(req.URL.String(), expectedResources, projectID, location, datasetID, fhirStoreID)
+		expectedResource, expectedResourceIdx := validateURLAndMatchResource(t, req.URL.String(), expectedResources, projectID, location, datasetID, fhirStoreID)
 		if expectedResource == nil {
 			t.Errorf("FHIR Store Test server received an unexpected request at url: %s", req.URL.String())
 			w.WriteHeader(500)
@@ -207,9 +206,17 @@ type ErrorNDJSONLine struct {
 	FHIRResource string `json:"fhir_resource"`
 }
 
-func validateURLAndMatchResource(callURL string, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) (*FHIRStoreTestResource, int) {
+func validateURLAndMatchResource(t *testing.T, callURL string, expectedResources []FHIRStoreTestResource, projectID, location, datasetID, fhirStoreID string) (*FHIRStoreTestResource, int) {
 	for idx, r := range expectedResources {
-		expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s?", projectID, location, datasetID, fhirStoreID, r.ResourceType, r.ResourceID)
+		// bulkfhir.ResourceTypeCodeToName would cause a dependency cycle, so we
+		// convert from CONST_CASE to PascalCase manually, which should be correct
+		// in most cases - good enough for tests.
+		resourceTypeParts := []string{}
+		for _, part := range strings.Split(strings.ToLower(r.ResourceTypeCode.String()), "_") {
+			resourceTypeParts = append(resourceTypeParts, strings.Title(part))
+		}
+		resourceType := strings.Join(resourceTypeParts, "")
+		expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s?", projectID, location, datasetID, fhirStoreID, resourceType, r.ResourceID)
 		if callURL == expectedPath {
 			return &r, idx
 		}

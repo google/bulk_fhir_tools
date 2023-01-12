@@ -29,6 +29,7 @@ import (
 	"sync"
 	"testing"
 
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	"github.com/google/medical_claims_tools/gcs"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
@@ -320,28 +321,28 @@ func TestMainWrapper(t *testing.T) {
 			if tc.enableFHIRStore {
 				fhirStoreTests = []testhelpers.FHIRStoreTestResource{
 					{
-						ResourceID:   "PatientID",
-						ResourceType: "Patient",
-						Data:         file1Data,
+						ResourceID:       "PatientID",
+						ResourceTypeCode: cpb.ResourceTypeCode_PATIENT,
+						Data:             file1Data,
 					},
 					{
-						ResourceID:   "EOBID",
-						ResourceType: "ExplanationOfBenefit",
-						Data:         file3Data,
+						ResourceID:       "EOBID",
+						ResourceTypeCode: cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
+						Data:             file3Data,
 					},
 				}
 
 				if tc.rectify {
 					fhirStoreTests = append(fhirStoreTests, testhelpers.FHIRStoreTestResource{
-						ResourceID:   "CoverageID",
-						ResourceType: "Coverage",
-						Data:         file2DataRectified,
+						ResourceID:       "CoverageID",
+						ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
+						Data:             file2DataRectified,
 					})
 				} else {
 					fhirStoreTests = append(fhirStoreTests, testhelpers.FHIRStoreTestResource{
-						ResourceID:   "CoverageID",
-						ResourceType: "Coverage",
-						Data:         file2Data,
+						ResourceID:       "CoverageID",
+						ResourceTypeCode: cpb.ResourceTypeCode_COVERAGE,
+						Data:             file2Data,
 					})
 				}
 

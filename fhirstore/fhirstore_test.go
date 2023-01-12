@@ -27,6 +27,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 func TestUploadResource(t *testing.T) {
@@ -42,7 +44,7 @@ func TestUploadResource(t *testing.T) {
 		uploadResourceWithParams := fmt.Sprintf("UploadResource(%s, %s, %s, %s, %s)", inputJSON, projectID, location, datasetID, fhirStoreID)
 		serverURL := testhelpers.FHIRStoreServer(
 			t,
-			[]testhelpers.FHIRStoreTestResource{{ResourceID: resourceID, ResourceType: resourceType, Data: inputJSON}},
+			[]testhelpers.FHIRStoreTestResource{{ResourceID: resourceID, ResourceTypeCode: cpb.ResourceTypeCode_PATIENT, Data: inputJSON}},
 			projectID,
 			location,
 			datasetID,
