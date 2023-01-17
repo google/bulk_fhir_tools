@@ -49,7 +49,6 @@ func TestNDJSONSink(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		description   string
-		filePrefix    string
 		wantFileNames []string
 	}{
 		{
@@ -60,15 +59,6 @@ func TestNDJSONSink(t *testing.T) {
 				"Patient_0.ndjson",
 			},
 		},
-		{
-			description: "with prefix",
-			filePrefix:  "prefix",
-			wantFileNames: []string{
-				"prefix_Account_0.ndjson",
-				"prefix_Account_1.ndjson",
-				"prefix_Patient_0.ndjson",
-			},
-		},
 	} {
 		t.Run(tc.description, func(t *testing.T) {
 			tempdir, err := os.MkdirTemp("", "")
@@ -76,7 +66,7 @@ func TestNDJSONSink(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer os.RemoveAll(tempdir)
-			sink, err := processing.NewNDJSONSink(ctx, tempdir, tc.filePrefix)
+			sink, err := processing.NewNDJSONSink(ctx, tempdir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -118,11 +108,10 @@ func TestGCSNDJSONSink(t *testing.T) {
 	patient1 := []byte(`{"resourceType":"Patient","id":"PatientID1"}`)
 	bucketName := "bucket"
 	directory := "directory"
-	prefix := "prefix"
 
 	gcsServer := testhelpers.NewGCSServer(t)
 
-	sink, err := processing.NewGCSNDJSONSink(ctx, gcsServer.URL(), bucketName, directory, prefix)
+	sink, err := processing.NewGCSNDJSONSink(ctx, gcsServer.URL(), bucketName, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +126,7 @@ func TestGCSNDJSONSink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	objName := directory + "/" + prefix + "_Patient_0.ndjson"
+	objName := directory + "/" + "Patient_0.ndjson"
 	obj, ok := gcsServer.GetObject(bucketName, objName)
 	if !ok {
 		t.Fatalf("gs://%s/%s not found", bucketName, objName)

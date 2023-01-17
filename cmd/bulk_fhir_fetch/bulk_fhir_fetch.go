@@ -147,16 +147,18 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	var sinks []processing.Sink
 	if cfg.outputDir != "" {
 		if strings.HasPrefix(cfg.outputDir, "gs://") {
-			gcsSink, err := getGCSOutputSink(ctx, cfg.gcsEndpoint, cfg.outputDir)
+			bucket, relativePath, err := gcs.PathComponents(cfg.outputDir)
+			if err != nil {
+				return err
+			}
+			gcsSink, err := processing.NewGCSNDJSONSink(ctx, cfg.gcsEndpoint, bucket, relativePath)
 			if err != nil {
 				return fmt.Errorf("error making GCS output sink: %v", err)
 			}
 			sinks = append(sinks, gcsSink)
 		} else {
 			// Add a local directory NDJSON sink.
-			// TODO(b/265437891): decommission prefix support.
-			filePrefix := ""
-			ndjsonSink, err := processing.NewNDJSONSink(ctx, cfg.outputDir, filePrefix)
+			ndjsonSink, err := processing.NewNDJSONSink(ctx, cfg.outputDir)
 			if err != nil {
 				return fmt.Errorf("error making ndjson sink: %v", err)
 			}
@@ -257,9 +259,7 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 		return nil, err
 	}
 
-	// TODO(b/265437891): decommission prefix support.
-	filePrefix := ""
-	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath, filePrefix)
+	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath)
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the

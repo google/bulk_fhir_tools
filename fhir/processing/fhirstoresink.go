@@ -237,7 +237,7 @@ func (gbfss *gcsBasedFHIRStoreSink) Write(ctx context.Context, resource Resource
 		}
 		// Use the stored context from NewFHIRStoreSink, in case ctx is cancelled
 		// before subsequent Write calls.
-		gbfss.ndjsonSink, err = newGCSNDJSONSink(gbfss.ndjsonSinkCtx, gbfss.gcsEndpoint, gbfss.gcsBucket, fhir.ToFHIRInstant(transactionTime), "" /* filePrefix */)
+		gbfss.ndjsonSink, err = newGCSNDJSONSink(gbfss.ndjsonSinkCtx, gbfss.gcsEndpoint, gbfss.gcsBucket, fhir.ToFHIRInstant(transactionTime))
 		if err != nil {
 			return err
 		}

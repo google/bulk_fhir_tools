@@ -38,18 +38,14 @@ type fileKey struct {
 type ndjsonSink struct {
 	files      map[fileKey]io.WriteCloser
 	fileIndex  map[cpb.ResourceTypeCode_Value]int
-	filePrefix string
 	createFile createFileFunc
 }
 
 // NewNDJSONSink creates a new Sink which writes resources to NDJSON files in
 // the given directory. Resources are grouped by the URL they were retrieved
 // from, with their file name containing the resource type and an incremented
-// index to distinguish them. If filePrefix is non-empty, it is prepended to the
-// generated filename separated with an underscore. Thus, example filenames
-// would be Patient_1.ndjson with no filePrefix, or myPrefix_Patient_1.ndjson
-// with filePrefix set.
-func NewNDJSONSink(ctx context.Context, directory, filePrefix string) (Sink, error) {
+// index to distinguish them.
+func NewNDJSONSink(ctx context.Context, directory string) (Sink, error) {
 	if stat, err := os.Stat(directory); err != nil {
 		return nil, fmt.Errorf("could not stat directory %q - %w", directory, err)
 	} else if !stat.IsDir() {
@@ -65,20 +61,19 @@ func NewNDJSONSink(ctx context.Context, directory, filePrefix string) (Sink, err
 	return &ndjsonSink{
 		files:      map[fileKey]io.WriteCloser{},
 		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
-		filePrefix: filePrefix,
 		createFile: createFile,
 	}, nil
 }
 
 // NewGCSNDJSONSink returns a Sink which writes NDJSON files to GCS. See
 // NewNDJSONSink for additional documentation.
-func NewGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory, filePrefix string) (Sink, error) {
-	return newGCSNDJSONSink(ctx, endpoint, bucket, directory, filePrefix)
+func NewGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory string) (Sink, error) {
+	return newGCSNDJSONSink(ctx, endpoint, bucket, directory)
 }
 
 // newGCSNDJSONSink returns the raw ndjsonSink, so that it can be embedded in
 // gcsBasedFHIRStoreSink without a cast.
-func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory, filePrefix string) (*ndjsonSink, error) {
+func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory string) (*ndjsonSink, error) {
 	gcsClient, err := gcs.NewClient(ctx, bucket, endpoint)
 	if err != nil {
 		return nil, err
@@ -93,7 +88,6 @@ func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory, filePref
 		files:      map[fileKey]io.WriteCloser{},
 		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
 		createFile: createFile,
-		filePrefix: filePrefix,
 	}, nil
 }
 
@@ -110,9 +104,6 @@ func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (
 	idx := ns.fileIndex[key.resourceType]
 	ns.fileIndex[resource.Type()] = idx + 1
 	filename := fmt.Sprintf("%s_%d.ndjson", typeName, idx)
-	if ns.filePrefix != "" {
-		filename = fmt.Sprintf("%s_%s", ns.filePrefix, filename)
-	}
 
 	w, err := ns.createFile(ctx, filename)
 	if err != nil {
