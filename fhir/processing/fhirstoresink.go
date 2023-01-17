@@ -98,15 +98,17 @@ func (dfss *directFHIRStoreSink) Write(ctx context.Context, resource ResourceWra
 func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 	close(dfss.fhirJSONs)
 	dfss.wg.Wait()
+	if dfss.errorNDJSONFile != nil {
+		if err := dfss.errorNDJSONFile.Close(); err != nil {
+			return err
+		}
+	}
 	if errCnt := dfss.errorCounter.CloseAndGetCount(); errCnt > 0 {
 		if dfss.noFailOnUploadErrors {
 			log.Warningf("%v: %d", ErrUploadFailures, errCnt)
 		} else {
 			return fmt.Errorf("%w: %d", ErrUploadFailures, errCnt)
 		}
-	}
-	if dfss.errorNDJSONFile != nil {
-		return dfss.errorNDJSONFile.Close()
 	}
 	return nil
 }
