@@ -51,7 +51,7 @@ local disk only (and only fetch new data on each run, making use of the `-
 since_file` flag), you can add a line like:
 
 ```
-0 4 * * * ./path/to/bulk_fhir_fetch -client_id=id -client_secret=secret -bcda_server_url="https://sandbox.bcda.cms.gov" -output_prefix="/path/to/local/store" -use_v2=true -since_file="/path/to/since_file"
+0 4 * * * ./path/to/bulk_fhir_fetch -client_id=id -client_secret=secret -bcda_server_url="https://sandbox.bcda.cms.gov" -output_dir="/path/to/local/store" -use_v2=true -since_file="/path/to/since_file"
 ```
 
 [Read more here](https://en.wikipedia.org/wiki/Cron#Overview) to learn about cron configurations.

@@ -64,8 +64,8 @@ func TestMainWrapper(t *testing.T) {
 		noFailOnUploadErrors       bool
 		setPendingJobURL           bool
 		fhirStoreEnableBatchUpload bool
-		// unsetOutputPrefix sets the outputPrefix to empty string if true.
-		unsetOutputPrefix bool
+		// unsetOutputDir sets the outputDir to empty string if true.
+		unsetOutputDir bool
 		// disableFHIRStoreUploadChecks will disable the portion of the test that
 		// checks for FHIR store uploads, even if fhir store uploads is set to true.
 		// This is needed for only some subtests.
@@ -162,12 +162,12 @@ func TestMainWrapper(t *testing.T) {
 			enableFHIRStore:                   true,
 			enableFHIRStoreUploadErrorFileDir: true,
 		},
-		// Only testing cases with FHIR Store enabled for setting outputPrefix to ""
+		// Only testing cases with FHIR Store enabled for setting outputDir to ""
 		{
-			name:              "EmptyOutputPrefixWithRectifyEnabledWithFHIRStoreBCDAV2",
-			rectify:           true,
-			enableFHIRStore:   true,
-			unsetOutputPrefix: true,
+			name:            "EmptyoutputDirWithRectifyEnabledWithFHIRStoreBCDAV2",
+			rectify:         true,
+			enableFHIRStore: true,
+			unsetOutputDir:  true,
 		},
 		// Batch upload tests cases
 		{
@@ -269,7 +269,7 @@ func TestMainWrapper(t *testing.T) {
 			gcpDatasetID := "dataset"
 			gcpFHIRStoreID := "fhirID"
 
-			outputPrefix := t.TempDir()
+			outputDir := t.TempDir()
 
 			// Set mainWrapperConfig for this test case. In practice, values are
 			// populated in mainWrapperConfig from flags. Setting the config struct
@@ -279,7 +279,7 @@ func TestMainWrapper(t *testing.T) {
 			cfg := mainWrapperConfig{
 				clientID:                   "id",
 				clientSecret:               "secret",
-				outputPrefix:               outputPrefix,
+				outputDir:                  outputDir,
 				bcdaServerURL:              bcdaServer.URL,
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
@@ -382,13 +382,13 @@ func TestMainWrapper(t *testing.T) {
 			if tc.wantError == nil {
 				// Check NDJSON outputs:
 				expectedFileSuffixToData := map[string][]byte{
-					"_ExplanationOfBenefit_0.ndjson": file3Data,
-					"_Coverage_0.ndjson":             file2Data,
-					"_Patient_0.ndjson":              file1Data}
+					"ExplanationOfBenefit_0.ndjson": file3Data,
+					"Coverage_0.ndjson":             file2Data,
+					"Patient_0.ndjson":              file1Data}
 
 				if tc.rectify {
 					// Replace expected data with the rectified version of resource:
-					expectedFileSuffixToData["_Coverage_0.ndjson"] = file2DataRectified
+					expectedFileSuffixToData["Coverage_0.ndjson"] = file2DataRectified
 				}
 
 				if tc.setPendingJobURL {
@@ -397,9 +397,9 @@ func TestMainWrapper(t *testing.T) {
 					}
 				}
 
-				if !tc.unsetOutputPrefix {
+				if !tc.unsetOutputDir {
 					for fileSuffix, wantData := range expectedFileSuffixToData {
-						fullPath := outputPrefix + fileSuffix
+						fullPath := path.Join(outputDir, fileSuffix)
 						r, err := os.Open(fullPath)
 						if err != nil {
 							t.Errorf("unable to open file %s: %s", fullPath, err)
@@ -484,7 +484,7 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	jobStatusURL = bcdaServer.URL + jobsEndpoint
 
 	// Set flags for this test case:
-	outputPrefix := t.TempDir()
+	outputDir := t.TempDir()
 	sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
 	// Set mainWrapperConfig for this test case. In practice, values are
 	// populated in mainWrapperConfig from flags. Setting the config struct
@@ -494,7 +494,7 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	cfg := mainWrapperConfig{
 		clientID:                  "id",
 		clientSecret:              "secret",
-		outputPrefix:              outputPrefix,
+		outputDir:                 outputDir,
 		bcdaServerURL:             bcdaServer.URL,
 		sinceFile:                 sinceFilePath,
 		maxFHIRStoreUploadWorkers: 10,
@@ -575,7 +575,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	jobStatusURL = bcdaServer.URL + jobsEndpoint
 
 	// Set flags for this test case:
-	outputPrefix := t.TempDir()
+	outputDir := t.TempDir()
 	// Set mainWrapperConfig for this test case. In practice, values are
 	// populated in mainWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
@@ -584,7 +584,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	cfg := mainWrapperConfig{
 		clientID:                  "id",
 		clientSecret:              "secret",
-		outputPrefix:              outputPrefix,
+		outputDir:                 outputDir,
 		bcdaServerURL:             bcdaServer.URL,
 		maxFHIRStoreUploadWorkers: 10,
 	}
@@ -686,7 +686,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			jobStatusURL = bcdaServer.URL + jobURLSuffix
 
 			// Set flags for this test case:
-			outputPrefix := t.TempDir()
+			outputDir := t.TempDir()
 			// Set mainWrapperConfig for this test case. In practice, values are
 			// populated in mainWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
@@ -695,7 +695,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			cfg := mainWrapperConfig{
 				clientID:                  "id",
 				clientSecret:              "secret",
-				outputPrefix:              outputPrefix,
+				outputDir:                 outputDir,
 				bcdaServerURL:             bcdaServer.URL,
 				maxFHIRStoreUploadWorkers: 10,
 			}
@@ -786,7 +786,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			jobStatusURL = bcdaServer.URL + jobStatusURLSuffix
 
 			// Set minimal flags for this test case:
-			outputPrefix := t.TempDir()
+			outputDir := t.TempDir()
 			gcpProject := "project"
 			gcpLocation := "location"
 			gcpDatasetID := "dataset"
@@ -800,7 +800,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			cfg := mainWrapperConfig{
 				clientID:                   "id",
 				clientSecret:               "secret",
-				outputPrefix:               outputPrefix,
+				outputDir:                  outputDir,
 				bcdaServerURL:              bcdaServer.URL,
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
@@ -836,7 +836,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	bucketName := "bucket"
 
 	// Set minimal flags for this test case:
-	outputPrefix := t.TempDir()
+	outputDir := t.TempDir()
 	gcpProject := "project"
 	gcpLocation := "location"
 	gcpDatasetID := "dataset"
@@ -919,7 +919,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		fhirStoreEndpoint:             fhirStoreServer.URL,
 		clientID:                      "id",
 		clientSecret:                  "secret",
-		outputPrefix:                  outputPrefix,
+		outputDir:                     outputDir,
 		bcdaServerURL:                 bcdaServer.URL,
 		fhirStoreGCPProject:           gcpProject,
 		fhirStoreGCPLocation:          gcpLocation,
@@ -951,8 +951,8 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		t.Errorf("mainWrapper(%v) expected FHIR Store import operation status to be called, but was not", cfg)
 	}
 
-	// Check that files were also written to disk under outputPrefix
-	fullPath := outputPrefix + "_Patient_0.ndjson"
+	// Check that files were also written to disk under outputDir
+	fullPath := path.Join(outputDir, "Patient_0.ndjson")
 	r, err := os.Open(fullPath)
 	if err != nil {
 		t.Errorf("unable to open file %s: %s", fullPath, err)
@@ -1041,7 +1041,7 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 	bulkFHIRBaseURL := bulkFHIRServer.URL + baseURLSuffix
 	authURL := bulkFHIRServer.URL + "/auth/token"
 
-	outputPrefix := t.TempDir()
+	outputDir := t.TempDir()
 
 	// Set mainWrapperConfig for this test case. In practice, values are
 	// populated in mainWrapperConfig from flags. Setting the config struct
@@ -1051,7 +1051,7 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 	cfg := mainWrapperConfig{
 		clientID:                 "id",
 		clientSecret:             "secret",
-		outputPrefix:             outputPrefix,
+		outputDir:                outputDir,
 		useGeneralizedBulkImport: true,
 		baseServerURL:            bulkFHIRBaseURL,
 		authURL:                  authURL,
@@ -1064,8 +1064,8 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
 	}
 
-	// Check that files were also written to disk under outputPrefix
-	fullPath := outputPrefix + "_Patient_0.ndjson"
+	// Check that files were also written to disk under outputDir
+	fullPath := path.Join(outputDir, "Patient_0.ndjson")
 	r, err := os.Open(fullPath)
 	if err != nil {
 		t.Errorf("unable to open file %s: %s", fullPath, err)
@@ -1090,7 +1090,7 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
 	// Set minimal flags for this test case:
-	outputPrefix := t.TempDir()
+	outputDir := t.TempDir()
 	sinceFile := "gs://sinceBucket/sinceFile"
 	since := "2006-01-02T15:04:05.000-07:00"
 
@@ -1136,7 +1136,7 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		gcsEndpoint:   gcsServer.URL(),
 		clientID:      "id",
 		clientSecret:  "secret",
-		outputPrefix:  outputPrefix,
+		outputDir:     outputDir,
 		bcdaServerURL: bcdaServer.URL,
 		rectify:       true,
 		sinceFile:     sinceFile,
@@ -1154,8 +1154,8 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		t.Errorf("gcs server unexpected data in since file: got: %s, want: %s", obj.Data, []byte(serverTransactionTime))
 	}
 
-	// Check that files were also written to disk under outputPrefix
-	fullPath := outputPrefix + "_Patient_0.ndjson"
+	// Check that files were also written to disk under outputDir
+	fullPath := path.Join(outputDir, "Patient_0.ndjson")
 	r, err := os.Open(fullPath)
 	if err != nil {
 		t.Errorf("unable to open file %s: %s", fullPath, err)
@@ -1171,22 +1171,22 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 
 }
 
-func TestMainWrapper_GCSOutputPrefix(t *testing.T) {
+func TestMainWrapper_GCSoutputDir(t *testing.T) {
 	cases := []struct {
 		name                        string
-		outputPrefix                string
+		outputDir                   string
 		expectedGCSItemBucket       string
 		expectedGCSItemRelativePath string
 	}{
 		{
-			name:                        "NonEmptyPrefix",
-			outputPrefix:                "gs://fhirBucket/patients/prefix",
+			name:                        "TrailingSlash",
+			outputDir:                   "gs://fhirBucket/patients/",
 			expectedGCSItemBucket:       "fhirBucket",
-			expectedGCSItemRelativePath: "patients/prefix_Patient_0.ndjson",
+			expectedGCSItemRelativePath: "patients/Patient_0.ndjson",
 		},
 		{
-			name:                        "EmptyPrefix",
-			outputPrefix:                "gs://fhirBucket/patients/",
+			name:                        "NoTrailingSlash",
+			outputDir:                   "gs://fhirBucket/patients",
 			expectedGCSItemBucket:       "fhirBucket",
 			expectedGCSItemRelativePath: "patients/Patient_0.ndjson",
 		},
@@ -1239,7 +1239,7 @@ func TestMainWrapper_GCSOutputPrefix(t *testing.T) {
 				gcsEndpoint:   gcsServer.URL(),
 				clientID:      "id",
 				clientSecret:  "secret",
-				outputPrefix:  tc.outputPrefix,
+				outputDir:     tc.outputDir,
 				bcdaServerURL: bcdaServer.URL,
 				rectify:       true,
 			}
@@ -1265,6 +1265,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("client_id", "clientID")
 	flag.Set("client_secret", "clientSecret")
 	flag.Set("output_prefix", "outputPrefix")
+	flag.Set("output_dir", "outputDir")
 	flag.Set("rectify", "true")
 	flag.Set("enable_fhir_store", "true")
 	flag.Set("max_fhir_store_upload_workers", "99")
@@ -1295,6 +1296,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		clientID:                      "clientID",
 		clientSecret:                  "clientSecret",
 		outputPrefix:                  "outputPrefix",
+		outputDir:                     "outputDir",
 		rectify:                       true,
 		enableFHIRStore:               true,
 		maxFHIRStoreUploadWorkers:     99,

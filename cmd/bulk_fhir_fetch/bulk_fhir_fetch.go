@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,7 +38,8 @@ import (
 var (
 	clientID     = flag.String("client_id", "", "API client ID (required)")
 	clientSecret = flag.String("client_secret", "", "API client secret (required)")
-	outputPrefix = flag.String("output_prefix", "", "Data output prefix. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path/filePrefix. At least a bucket and folder must be included, though the filePrefix is optional. If a prefix is not included, the path should end with a trailing /, for example gs://bucket/folder/")
+	outputPrefix = flag.String("output_prefix", "", "DEPRECATED: use output_dir instead.")
+	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
@@ -113,8 +112,14 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		return errMustSpecifyGCSBucket
 	}
 
-	if cfg.outputPrefix == "" && !cfg.enableFHIRStore {
-		log.Warningln("outputPrefix is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
+	if cfg.outputPrefix != "" {
+		errStr := "outputPrefix is deprecated, please use outputDir instead"
+		log.Error(errStr)
+		return errors.New(errStr)
+	}
+
+	if cfg.outputDir == "" && !cfg.enableFHIRStore {
+		log.Warningln("outputDir is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
 	cl, err := getBulkFHIRClient(cfg)
@@ -140,17 +145,18 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	}
 
 	var sinks []processing.Sink
-	if cfg.outputPrefix != "" {
-		if strings.HasPrefix(cfg.outputPrefix, "gs://") {
-			gcsSink, err := getGCSOutputSink(ctx, cfg.gcsEndpoint, cfg.outputPrefix)
+	if cfg.outputDir != "" {
+		if strings.HasPrefix(cfg.outputDir, "gs://") {
+			gcsSink, err := getGCSOutputSink(ctx, cfg.gcsEndpoint, cfg.outputDir)
 			if err != nil {
 				return fmt.Errorf("error making GCS output sink: %v", err)
 			}
 			sinks = append(sinks, gcsSink)
 		} else {
 			// Add a local directory NDJSON sink.
-			directory, filePrefix := filepath.Split(cfg.outputPrefix)
-			ndjsonSink, err := processing.NewNDJSONSink(ctx, directory, filePrefix)
+			// TODO(b/265437891): decommission prefix support.
+			filePrefix := ""
+			ndjsonSink, err := processing.NewNDJSONSink(ctx, cfg.outputDir, filePrefix)
 			if err != nil {
 				return fmt.Errorf("error making ndjson sink: %v", err)
 			}
@@ -250,13 +256,10 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 	if err != nil {
 		return nil, err
 	}
-	filePrefix := path.Base(relativePath)
-	// If the path ends in "/" that indicates no prefix to be used.
-	if strings.HasSuffix(relativePath, "/") {
-		filePrefix = ""
-	}
 
-	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, path.Dir(relativePath), filePrefix)
+	// TODO(b/265437891): decommission prefix support.
+	filePrefix := ""
+	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath, filePrefix)
 }
 
 // mainWrapperConfig holds non-flag (for now) config variables for the
@@ -272,6 +275,7 @@ type mainWrapperConfig struct {
 	clientID                      string
 	clientSecret                  string
 	outputPrefix                  string
+	outputDir                     string
 	rectify                       bool
 	enableFHIRStore               bool
 	maxFHIRStoreUploadWorkers     int
@@ -303,6 +307,7 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		clientID:     *clientID,
 		clientSecret: *clientSecret,
 		outputPrefix: *outputPrefix,
+		outputDir:    *outputDir,
 		rectify:      *rectify,
 
 		enableFHIRStore:             *enableFHIRStore,

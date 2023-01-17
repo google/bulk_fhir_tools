@@ -85,7 +85,7 @@ to follow your organization's policies with respect to PHI.__
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
-    -output_prefix="/path/to/store/output/data/prefix_" \
+    -output_dir="/path/to/store/output/data" \
     -alsologtostderr=true -stderrthreshold=0
   ```
   Change the -bcda_server_url as needed. You will need to change it if you are
@@ -140,7 +140,7 @@ Note, do not run concurrent instances of fetch that use the same since file.
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
-    -output_prefix="/path/to/store/output/data/prefix_" \
+    -output_dir="/path/to/store/output/data/" \
     -rectify=true \
     -enable_fhir_store=true \
     -fhir_store_gcp_project="your_project" \
@@ -150,9 +150,10 @@ Note, do not run concurrent instances of fetch that use the same since file.
     -alsologtostderr=true -stderrthreshold=0
   ```
 
-  Note: If `-enable_fhir_store=true` specifying `-output_prefix` is optional. If
-  `-output_prefix` is not specified, no NDJSON output will be written to local
-  disk and the only output will be to FHIR store.
+  Note: If `-enable_fhir_store=true` specifying `-output_dir` is optional. If
+  `-output_dir` is not specified, no NDJSON output will be written to local
+  disk and the only output will be to FHIR store. If you are using an older
+  version of the tool, use `-output_prefix` instead of `-output_dir`.
 
 To set up the `bulk_fhir_fetch` program to run periodically, take a look at the
 [documentation](docs/periodic_gcp_ingestion.md).
