@@ -1,0 +1,164 @@
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: "us-central1"
+          # TODO(b/256011525): Replace with `batch.googleapis.com/v1` when secret_variables gets supported in v1.
+          - batchApi: "batch.googleapis.com/v1alpha"
+          - batchApiUrl: ${"https://" + batchApi + "/projects/" + projectId + "/locations/" + region + "/jobs"}
+          - imageUri: "golang:latest"
+          - jobId: ${"job-bulk-fetch-batch-" + string(int(sys.now()))}
+          - bucket: ${projectId + "-" + jobId}
+    - createBucket:
+        call: googleapis.storage.v1.buckets.insert
+        args:
+          query:
+            project: ${projectId}
+          body:
+            name: ${bucket}
+    - logCreateBucket:
+        call: sys.log
+        args:
+          data: ${"Created bucket " + bucket}
+    - logCreateBatchJob:
+        call: sys.log
+        args:
+          data: ${"Creating and running the batch job " + jobId}
+    - createAndRunBatchJob:
+        call: http.post
+        args:
+          url: ${batchApiUrl}
+          query:
+            job_id: ${jobId}
+          headers:
+            Content-Type: application/json
+          auth:
+            type: OAuth2
+          body:
+            taskGroups:
+              taskSpec:
+                runnables:
+                  - container:
+                      imageUri: ${imageUri}
+                      entrypoint: "/bin/sh"
+                      commands:
+                        - "-c"
+                        - "echo Starting bulk fhir fetch task. && \n
+                        echo Sending results to bucket: ${BUCKET} && \n
+                        echo $(apt-get -y update) && \n
+                        echo $(apt-get -y install git-all) && \n
+                        echo $(git clone https://github.com/google/medical_claims_tools.git) && \n
+                        cd medical_claims_tools/ && \n
+                        echo $(ls) && \n
+                        echo building go file && \n
+                        go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go && \n
+                        echo $( ls .) && \n
+                        echo $(./bulk_fhir_fetch
+                         -client_id=${CLIENT_ID}
+                         -client_secret=${CLIENT_SECRET}
+                         -enable_generalized_bulk_import=true
+                         -fhir_server_base_url=${FHIR_SERVER_BASE_URL}
+                         -fhir_auth_url=${FHIR_AUTH_URL}
+                         -fhir_auth_scopes=${FHIR_AUTH_SCOPES}
+                         -rectify=true
+                         -enable_fhir_store=true
+                         -fhir_store_gcp_project=${PROJECT_ID}
+                         -fhir_store_gcp_location=${LOCATION}
+                         -fhir_store_gcp_dataset_id=${FHIR_DATASET_ID}
+                         -fhir_store_id=${FHIR_STORE_ID}
+                         -fhir_store_enable_gcs_based_upload=true
+                         -fhir_store_gcs_based_upload_bucket=${BUCKET}
+                         -alsologtostderr=true
+                         -stderrthreshold=0)"
+                    environment:
+                      # These environment variables get passed to the batch job's VM and populate the above command.
+                      # TODO(b/256011525): Replace with a place holders.
+                      variables:
+                        PROJECT_ID: ${projectId}
+                        LOCATION: ${args.location}
+                        FHIR_DATASET_ID: ${args.fhir_dataset_id}
+                        FHIR_STORE_ID: ${args.fhir_store_id}
+                        FHIR_SERVER_BASE_URL: ${args.fhir_server_base_url}
+                        FHIR_AUTH_URL: ${args.fhir_auth_url}
+                        FHIR_AUTH_SCOPES: ${args.fhir_auth_scopes}
+                        BUCKET: ${bucket}
+                      # TODO(b/256011525): Replace with a place holder telling the user how to set and get these values.
+                      secret_variables:
+                        CLIENT_ID : ${args.client_id_gcp_secret_id}
+                        CLIENT_SECRET : ${args.client_secret_gcp_secret_id}
+              taskCount: 1
+              parallelism: 1
+            logsPolicy:
+              destination: CLOUD_LOGGING
+            allocationPolicy:
+              # TODO(b/256011525): Replace with a service account dedicated to Bulk FHIR fetch.
+              serviceAccount:
+                email : "795775069012-compute@developer.gserviceaccount.com"
+        result: createAndRunBatchJobResponse
+    - getJob:
+        call: http.get
+        args:
+          url: ${batchApiUrl + "/" + jobId}
+          auth:
+            type: OAuth2
+        result: getJobResult
+    - logState:
+        call: sys.log
+        args:
+          data: ${"Current job state " + getJobResult.body.status.state}
+    - checkState:
+        switch:
+          - condition: ${getJobResult.body.status.state == "SUCCEEDED"}
+            next: returnResult
+          - condition: ${getJobResult.body.status.state == "FAILED"}
+            next: deleteBucket
+        next: sleep
+    - sleep:
+        call: sys.sleep
+        args:
+          seconds: 10
+        next: getJob
+    - deleteBucket:
+        call: googleapis.storage.v1.buckets.delete
+        args:
+          bucket: ${bucket}
+    - logDeleteBucket:
+        call: sys.log
+        args:
+          data: ${"Deleted bucket " + bucket}
+        next: failExecution
+    # You can delete the batch job or keep it for debugging
+    # - logDeleteBatchJob:
+    #     call: sys.log
+    #     args:
+    #       data: ${"Deleting the batch job " + jobId}
+    # - deleteBatchJob:
+    #     call: http.delete
+    #     args:
+    #       url: ${batchApiUrl + "/" + jobId}
+    #       auth:
+    #         type: OAuth2
+    #     result: deleteBatchJob
+    - returnResult:
+        return:
+          jobId: ${jobId}
+          message: ${"A bucket with FHIR values was created at `" + bucket + "`"}
+    - failExecution:
+        raise:
+          message: ${"The underlying batch job " + jobId + " failed"}
