@@ -48,6 +48,17 @@ The example `bulk_fhir_fetch` command line program can be used to fetch claims d
 from the BCDA to save to disk or validate and upload to a [FHIR Store](https://cloud.google.com/healthcare-api/docs/how-tos/fhir). This program can also be configured to run as a periodic cron job where it only fetches new
 data since the program last successfully ran.
 
+### Cloning at a pinned version
+
+If cloning the repo for production use, we recommend cloning the repository at
+the latest released version, which can be found in the
+[releases](https://github.com/google/medical_claims_tools/releases)
+tab. For example for version `v0.1.5`:
+
+```sh
+git clone --branch v0.1.5 https://github.com/google/medical_claims_tools.git
+```
+
 ### Build
 
 To build the program from source run the following from the root of the
