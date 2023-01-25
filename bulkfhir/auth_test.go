@@ -377,7 +377,7 @@ func TestJWTOAuthAuthenticator_AddAuthenticationToRequest(t *testing.T) {
 					t.Errorf("Authenticate() sent invalid number of client_assertion_type values. got: %v, want: %v", got, 1)
 				}
 				claims := &jwt.StandardClaims{}
-				token, err := jwt.ParseWithClaims(req.Form["client_assertion"][0], claims, func(_ *jwt.Token) (interface{}, error) {
+				token, err := jwt.ParseWithClaims(req.Form["client_assertion"][0], claims, func(_ *jwt.Token) (any, error) {
 					return key.Public(), nil
 				})
 				if err != nil {

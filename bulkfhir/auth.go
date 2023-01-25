@@ -164,8 +164,8 @@ type tokenResponse struct {
 // the encoding/json.Unmarshaler interface.
 func (tr *tokenResponse) UnmarshalJSON(data []byte) error {
 	t := struct {
-		Token         string      `json:"access_token"`
-		ExpiresInSecs interface{} `json:"expires_in"`
+		Token         string `json:"access_token"`
+		ExpiresInSecs any    `json:"expires_in"`
 	}{}
 	if err := json.Unmarshal(data, &t); err != nil {
 		return err

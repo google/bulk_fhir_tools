@@ -25,7 +25,7 @@ import (
 // be equivalent.
 func NormalizeJSON(t *testing.T, jsonIn []byte) []byte {
 	t.Helper()
-	var tmp interface{}
+	var tmp any
 	err := json.Unmarshal(jsonIn, &tmp)
 	if err != nil {
 		t.Fatal(err)
