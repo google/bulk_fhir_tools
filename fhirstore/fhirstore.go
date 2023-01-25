@@ -42,16 +42,31 @@ var ErrorAPIServer = errors.New("error was received from the Healthcare API serv
 // new one.
 type Client struct {
 	service *healthcare.Service
+	cfg     *Config
+}
+
+// Config represents a FHIR Store configuration. It is passed to NewClient, but can also be used
+// elsewhere to hold and represent FHIR Store configuration concepts.
+type Config struct {
+	// CloudHealthcareEndpoint is the base cloud healthcare API endpoint to be used for accessing this
+	// FHIR store. For example, "https://healthcare.googleapis.com/".
+	CloudHealthcareEndpoint string
+	// ProjectID is the GCP project the FHIR Store belongs to.
+	ProjectID string
+	// Location is the GCP location the FHIR Store was created in.
+	Location string
+	// DatasetID is the GCP dataset this FHIR store is part of.
+	DatasetID string
+	// FHIRStoreID is the FHIR store identifier.
+	FHIRStoreID string
 }
 
 // NewClient initializes and returns a new FHIR store client.
-// TODO(b/245329562): consider taking project, location, dataset, etc upfront
-// here.
-func NewClient(ctx context.Context, healthcareEndpoint string) (*Client, error) {
+func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 	var service *healthcare.Service
 	var err error
-	if healthcareEndpoint == DefaultHealthcareEndpoint {
-		service, err = healthcare.NewService(ctx, option.WithEndpoint(healthcareEndpoint))
+	if cfg.CloudHealthcareEndpoint == DefaultHealthcareEndpoint {
+		service, err = healthcare.NewService(ctx, option.WithEndpoint(cfg.CloudHealthcareEndpoint))
 	} else {
 		// When not using the default GCP Healthcare endpoint, we provide an empty
 		// http.Client. This case is generally used in the test, so that the
@@ -59,25 +74,25 @@ func NewClient(ctx context.Context, healthcareEndpoint string) (*Client, error) 
 		// credentials in the test environment.
 		// TODO(b/211028663): we should try to find a better way to handle this
 		// case, perhaps we can set fake default creds in the test setup.
-		service, err = healthcare.NewService(ctx, option.WithHTTPClient(&http.Client{}), option.WithEndpoint(healthcareEndpoint))
+		service, err = healthcare.NewService(ctx, option.WithHTTPClient(&http.Client{}), option.WithEndpoint(cfg.CloudHealthcareEndpoint))
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	return &Client{service: service}, nil
+	return &Client{service: service, cfg: cfg}, nil
 }
 
 // UploadResource uploads the provided FHIR Resource to the GCP FHIR Store
 // specified by projectID, location, datasetID, and fhirStoreID.
-func (c *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
+func (c *Client) UploadResource(fhirJSON []byte) error {
 	fhirService := c.service.Projects.Locations.Datasets.FhirStores.Fhir
 
 	resourceType, resourceID, err := getResourceTypeAndID(fhirJSON)
 	if err != nil {
 		return err
 	}
-	name := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s", projectID, location, datasetID, fhirStoreID, resourceType, resourceID)
+	name := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir/%s/%s", c.cfg.ProjectID, c.cfg.Location, c.cfg.DatasetID, c.cfg.FHIRStoreID, resourceType, resourceID)
 
 	call := fhirService.Update(name, bytes.NewReader(fhirJSON))
 	call.Header().Set("Content-Type", "application/fhir+json;charset=utf-8")
@@ -102,21 +117,21 @@ func (c *Client) UploadResource(fhirJSON []byte, projectID, location, datasetID,
 // store specified, and does so in "batch" mode assuming each FHIR resource is
 // independent. The error returned may be an instance of BundleError,
 // which provides additional structured information on the error.
-func (c *Client) UploadBatch(fhirJSONs [][]byte, projectID, location, datasetID, fhirStoreID string) error {
+func (c *Client) UploadBatch(fhirJSONs [][]byte) error {
 	bundle := makeFHIRBundle(fhirJSONs, false)
 	bundleJSON, err := json.Marshal(bundle)
 	if err != nil {
 		return err
 	}
-	return c.UploadBundle(bundleJSON, projectID, location, datasetID, fhirStoreID)
+	return c.UploadBundle(bundleJSON)
 }
 
 // UploadBundle uploads the provided json serialized FHIR Bundle to the GCP
 // FHIR store specified. The error returned may be an instance of BundleError,
 // which provides additional structured information on the error.
-func (c *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datasetID, fhirStoreID string) error {
+func (c *Client) UploadBundle(fhirBundleJSON []byte) error {
 	fhirService := c.service.Projects.Locations.Datasets.FhirStores.Fhir
-	parent := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", projectID, location, datasetID, fhirStoreID)
+	parent := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", c.cfg.ProjectID, c.cfg.Location, c.cfg.DatasetID, c.cfg.FHIRStoreID)
 
 	call := fhirService.ExecuteBundle(parent, bytes.NewReader(fhirBundleJSON))
 	call.Header().Set("Content-Type", "application/fhir+json;charset=utf-8")
@@ -145,9 +160,9 @@ func (c *Client) UploadBundle(fhirBundleJSON []byte, projectID, location, datase
 // This function returns the GCP long running op name, which can be passed
 // to CheckGCSImportStatus to check the status of the long running import
 // operation.
-func (c *Client) ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID string) (string, error) {
+func (c *Client) ImportFromGCS(gcsURI string) (string, error) {
 	storesService := c.service.Projects.Locations.Datasets.FhirStores
-	name := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", projectID, location, datasetID, fhirStoreID)
+	name := fmt.Sprintf("projects/%s/locations/%s/datasets/%s/fhirStores/%s", c.cfg.ProjectID, c.cfg.Location, c.cfg.DatasetID, c.cfg.FHIRStoreID)
 
 	req := &healthcare.ImportResourcesRequest{
 		ContentStructure: "RESOURCE",

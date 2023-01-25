@@ -50,11 +50,17 @@ func TestUploadResource(t *testing.T) {
 			datasetID,
 			fhirStoreID)
 
-		c, err := fhirstore.NewClient(context.Background(), serverURL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: serverURL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadResourceWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		if err := c.UploadResource(inputJSON, projectID, location, datasetID, fhirStoreID); err != nil {
+		if err := c.UploadResource(inputJSON); err != nil {
 			t.Errorf(uploadResourceWithParams+" encountered an unexpected error: %v", err)
 		}
 	})
@@ -66,11 +72,17 @@ func TestUploadResource(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadResourceWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		if err := c.UploadResource(inputJSON, projectID, location, datasetID, fhirStoreID); !errors.Is(err, fhirstore.ErrorAPIServer) {
+		if err := c.UploadResource(inputJSON); !errors.Is(err, fhirstore.ErrorAPIServer) {
 			t.Errorf(uploadResourceWithParams+" unexpected error. got: %v, want: %v", err, fhirstore.ErrorAPIServer)
 		}
 	})
@@ -94,11 +106,17 @@ func TestUploadBatch(t *testing.T) {
 		expectedFullBatchSize := 2
 		serverURL := testhelpers.FHIRStoreServerBatch(t, inputJSONs, expectedFullBatchSize, projectID, location, datasetID, fhirStoreID)
 
-		c, err := fhirstore.NewClient(context.Background(), serverURL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: serverURL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadBatchWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		if err := c.UploadBatch(inputJSONs, projectID, location, datasetID, fhirStoreID); err != nil {
+		if err := c.UploadBatch(inputJSONs); err != nil {
 			t.Errorf(uploadBatchWithParams+" encountered an unexpected error: %v", err)
 		}
 	})
@@ -111,12 +129,18 @@ func TestUploadBatch(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadBatchWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
 
-		uploadErr := c.UploadBatch(inputJSONs, projectID, location, datasetID, fhirStoreID)
+		uploadErr := c.UploadBatch(inputJSONs)
 
 		checkInternalServerBundleError(t, uploadErr, errBody)
 	})
@@ -151,11 +175,17 @@ func TestUploadBundle(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadBundleWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		if err := c.UploadBundle(inputBundle, projectID, location, datasetID, fhirStoreID); err != nil {
+		if err := c.UploadBundle(inputBundle); err != nil {
 			t.Errorf(uploadBundleWithParams+" encountered an unexpected error: %v", err)
 		}
 	})
@@ -168,12 +198,18 @@ func TestUploadBundle(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf(uploadBundleWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
 
-		uploadErr := c.UploadBundle(inputBundle, projectID, location, datasetID, fhirStoreID)
+		uploadErr := c.UploadBundle(inputBundle)
 		if !errors.Is(uploadErr, fhirstore.ErrorAPIServer) {
 			t.Errorf(uploadBundleWithParams+" unexpected error. got: %v, want: %v", err, fhirstore.ErrorAPIServer)
 		}
@@ -218,11 +254,17 @@ func TestImportFromGCS(t *testing.T) {
 			w.Write([]byte(fmt.Sprintf("{\"name\": \"%s\"}", expectedOPName)))
 		}))
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		opName, err := c.ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID)
+		opName, err := c.ImportFromGCS(gcsURI)
 		if err != nil {
 			t.Errorf("ImportFromGCS unexpected error: %v", err)
 		}
@@ -237,11 +279,17 @@ func TestImportFromGCS(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		})
 		if err != nil {
 			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
 		}
-		_, err = c.ImportFromGCS(gcsURI, projectID, location, datasetID, fhirStoreID)
+		_, err = c.ImportFromGCS(gcsURI)
 		if err == nil {
 			t.Errorf("expected non-nil error from ImportFromGCS")
 		}
@@ -289,7 +337,13 @@ func TestCheckGCSImportStatus(t *testing.T) {
 			w.Write([]byte(`{"done": false}`))
 		}))
 
-		c, err := fhirstore.NewClient(context.Background(), server.URL)
+		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               "",
+			Location:                "",
+			DatasetID:               "",
+			FHIRStoreID:             "",
+		})
 		if err != nil {
 			t.Errorf("encountered an unexpected error when creating the FHIR store client: %v", err)
 		}

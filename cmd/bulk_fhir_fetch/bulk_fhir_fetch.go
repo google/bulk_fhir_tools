@@ -169,11 +169,13 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	if cfg.enableFHIRStore {
 		log.Infof("Data will also be uploaded to FHIR store based on provided parameters.")
 		fhirStoreSink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-			FHIRStoreEndpoint:    cfg.fhirStoreEndpoint,
-			FHIRStoreID:          cfg.fhirStoreID,
-			FHIRProjectID:        cfg.fhirStoreGCPProject,
-			FHIRDatasetID:        cfg.fhirStoreGCPDatasetID,
-			FHIRLocation:         cfg.fhirStoreGCPLocation,
+			FHIRStoreConfig: &fhirstore.Config{
+				CloudHealthcareEndpoint: cfg.fhirStoreEndpoint,
+				FHIRStoreID: cfg.fhirStoreID,
+				ProjectID: cfg.fhirStoreGCPProject,
+				DatasetID:   cfg.fhirStoreGCPDatasetID,
+				Location:    cfg.fhirStoreGCPLocation,
+			},
 			NoFailOnUploadErrors: cfg.noFailOnUploadErrors,
 
 			UseGCSUpload: cfg.fhirStoreEnableGCSBasedUpload,

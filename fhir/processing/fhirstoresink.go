@@ -42,11 +42,7 @@ const defaultBatchSize = 5
 // directFHIRStoreSink implements the processing.Sink interface to upload
 // resources directly to FHIR store, either individually or batched.
 type directFHIRStoreSink struct {
-	fhirStoreEndpoint  string
-	fhirStoreProjectID string
-	fhirStoreLocation  string
-	fhirStoreDatasetID string
-	fhirStoreID        string
+	fhirStoreCfg *fhirstore.Config
 
 	// batchUpload indicates if fhirJSONs should be uploaded to FHIR store in
 	// batches using executeBundle in batch mode.
@@ -114,13 +110,13 @@ func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 }
 
 func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
-	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreEndpoint)
+	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreCfg)
 	if err != nil {
 		log.Exitf("error initializing FHIR store client: %v", err)
 	}
 
 	for fhirJSON := range dfss.fhirJSONs {
-		err := c.UploadResource([]byte(fhirJSON), dfss.fhirStoreProjectID, dfss.fhirStoreLocation, dfss.fhirStoreDatasetID, dfss.fhirStoreID)
+		err := c.UploadResource([]byte(fhirJSON))
 		if err != nil {
 			// TODO(b/211490544): consider adding an auto-retrying mechanism in the
 			// future.
@@ -135,7 +131,7 @@ func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
 }
 
 func (dfss *directFHIRStoreSink) uploadBatchWorker(ctx context.Context) {
-	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreEndpoint)
+	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreCfg)
 	if err != nil {
 		log.Exitf("error initializing FHIR store client: %v", err)
 	}
@@ -163,7 +159,7 @@ func (dfss *directFHIRStoreSink) uploadBatchWorker(ctx context.Context) {
 		fhirBatch := fhirBatchBuffer[0:numBufferItemsPopulated]
 
 		// Upload batch
-		if err := c.UploadBatch(fhirBatch, dfss.fhirStoreProjectID, dfss.fhirStoreLocation, dfss.fhirStoreDatasetID, dfss.fhirStoreID); err != nil {
+		if err := c.UploadBatch(fhirBatch); err != nil {
 			log.Errorf("error uploading batch: %v", err)
 			// TODO(b/225916126): in the future, try to unpack the error and only
 			// write out the resources within the bundle that failed. For now, we
@@ -213,11 +209,7 @@ type gcsBasedFHIRStoreSink struct {
 	ndjsonSink    *ndjsonSink
 	ndjsonSinkCtx context.Context
 
-	fhirStoreClient       *fhirstore.Client
-	fhirStoreGCPProject   string
-	fhirStoreGCPLocation  string
-	fhirStoreGCPDatasetID string
-	fhirStoreID           string
+	fhirStoreClient *fhirstore.Client
 
 	transactionTime *bulkfhir.TransactionTime
 
@@ -264,12 +256,7 @@ func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
 	gcsURI := fmt.Sprintf("gs://%s/%s/**", gbfss.gcsBucket, fhir.ToFHIRInstant(transactionTime))
 
 	log.Infof("Starting the import job from GCS location where FHIR data was saved: %s", gcsURI)
-	opName, err := gbfss.fhirStoreClient.ImportFromGCS(
-		gcsURI,
-		gbfss.fhirStoreGCPProject,
-		gbfss.fhirStoreGCPLocation,
-		gbfss.fhirStoreGCPDatasetID,
-		gbfss.fhirStoreID)
+	opName, err := gbfss.fhirStoreClient.ImportFromGCS(gcsURI)
 
 	if err != nil {
 		return fmt.Errorf("failed to start import job: %w", err)
@@ -300,11 +287,7 @@ func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
 
 // FHIRStoreSinkConfig defines the configuration passed to NewFHIRStoreSink.
 type FHIRStoreSinkConfig struct {
-	FHIRStoreEndpoint    string
-	FHIRStoreID          string
-	FHIRProjectID        string
-	FHIRLocation         string
-	FHIRDatasetID        string
+	FHIRStoreConfig      *fhirstore.Config
 	NoFailOnUploadErrors bool
 
 	// If true, the sink will write NDJSON files to GCS, and use the FHIR Store
@@ -326,24 +309,20 @@ type FHIRStoreSinkConfig struct {
 }
 
 func newGCSBasedFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink, error) {
-	fhirStoreClient, err := fhirstore.NewClient(ctx, cfg.FHIRStoreEndpoint)
+	fhirStoreClient, err := fhirstore.NewClient(ctx, cfg.FHIRStoreConfig)
 	if err != nil {
 		return nil, err
 	}
 	return &gcsBasedFHIRStoreSink{
 		// Used only for deferred initialisation of the ndjsonSink
-		ndjsonSinkCtx:         ctx,
-		fhirStoreClient:       fhirStoreClient,
-		fhirStoreID:           cfg.FHIRStoreID,
-		fhirStoreGCPProject:   cfg.FHIRProjectID,
-		fhirStoreGCPLocation:  cfg.FHIRLocation,
-		fhirStoreGCPDatasetID: cfg.FHIRDatasetID,
-		transactionTime:       cfg.TransactionTime,
-		gcsEndpoint:           cfg.GCSEndpoint,
-		gcsBucket:             cfg.GCSBucket,
-		gcsImportJobTimeout:   cfg.GCSImportJobTimeout,
-		gcsImportJobPeriod:    cfg.GCSImportJobPeriod,
-		noFailOnUploadErrors:  cfg.NoFailOnUploadErrors,
+		ndjsonSinkCtx:        ctx,
+		fhirStoreClient:      fhirStoreClient,
+		transactionTime:      cfg.TransactionTime,
+		gcsEndpoint:          cfg.GCSEndpoint,
+		gcsBucket:            cfg.GCSBucket,
+		gcsImportJobTimeout:  cfg.GCSImportJobTimeout,
+		gcsImportJobPeriod:   cfg.GCSImportJobPeriod,
+		noFailOnUploadErrors: cfg.NoFailOnUploadErrors,
 	}, nil
 }
 
@@ -355,11 +334,7 @@ func newDirectFHIRStoreSink(ctx context.Context, cfg *FHIRStoreSinkConfig) (Sink
 	}
 
 	dfss := &directFHIRStoreSink{
-		fhirStoreEndpoint:    cfg.FHIRStoreEndpoint,
-		fhirStoreProjectID:   cfg.FHIRProjectID,
-		fhirStoreLocation:    cfg.FHIRLocation,
-		fhirStoreDatasetID:   cfg.FHIRDatasetID,
-		fhirStoreID:          cfg.FHIRStoreID,
+		fhirStoreCfg:         cfg.FHIRStoreConfig,
 		errorCounter:         counter.New(),
 		maxWorkers:           cfg.MaxWorkers,
 		noFailOnUploadErrors: cfg.NoFailOnUploadErrors,

@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir/processing"
+	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -95,11 +96,13 @@ func TestDirectFHIRStoreSink(t *testing.T) {
 			}
 			ctx := context.Background()
 			sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-				FHIRStoreEndpoint:   testServerURL,
-				FHIRProjectID:       fhirStoreProjectID,
-				FHIRLocation:        fhirStoreLocation,
-				FHIRDatasetID:       fhirStoreDatasetID,
-				FHIRStoreID:         fhirStoreID,
+				FHIRStoreConfig: &fhirstore.Config{
+					CloudHealthcareEndpoint: testServerURL,
+					ProjectID:               fhirStoreProjectID,
+					Location:                fhirStoreLocation,
+					DatasetID:               fhirStoreDatasetID,
+					FHIRStoreID:             fhirStoreID,
+				},
 				MaxWorkers:          numWorkers,
 				ErrorFileOutputPath: outputPrefix,
 			})
@@ -187,11 +190,13 @@ func TestDirectFHIRStoreSink_Batch(t *testing.T) {
 			}
 			ctx := context.Background()
 			sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-				FHIRStoreEndpoint:   serverURL,
-				FHIRProjectID:       projectID,
-				FHIRLocation:        location,
-				FHIRDatasetID:       datasetID,
-				FHIRStoreID:         fhirStoreID,
+				FHIRStoreConfig: &fhirstore.Config{
+					CloudHealthcareEndpoint: serverURL,
+					ProjectID:               projectID,
+					Location:                location,
+					DatasetID:               datasetID,
+					FHIRStoreID:             fhirStoreID,
+				},
 				MaxWorkers:          numWorkers,
 				ErrorFileOutputPath: outputPrefix,
 				BatchUpload:         true,
@@ -295,14 +300,16 @@ func TestDirectFHIRStoreSink_BatchDefaultBatchSize(t *testing.T) {
 
 	ctx := context.Background()
 	sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-		FHIRStoreEndpoint: server.URL,
-		FHIRProjectID:     projectID,
-		FHIRLocation:      location,
-		FHIRDatasetID:     datasetID,
-		FHIRStoreID:       fhirStoreID,
-		MaxWorkers:        numWorkers,
-		BatchUpload:       true,
-		BatchSize:         0, // BatchSize of 0 in the config should lead to a default of 5 in NewFHIRStoreSink
+		FHIRStoreConfig: &fhirstore.Config{
+			CloudHealthcareEndpoint: server.URL,
+			ProjectID:               projectID,
+			Location:                location,
+			DatasetID:               datasetID,
+			FHIRStoreID:             fhirStoreID,
+		},
+		MaxWorkers:  numWorkers,
+		BatchUpload: true,
+		BatchSize:   0, // BatchSize of 0 in the config should lead to a default of 5 in NewFHIRStoreSink
 	})
 	if err != nil {
 		t.Fatalf("NewFHIRStoreSink unexpected error: %v", err)
@@ -375,11 +382,13 @@ func TestDirectFHIRStoreSink_BatchErrors(t *testing.T) {
 
 			ctx := context.Background()
 			sink, err := processing.NewFHIRStoreSink(context.Background(), &processing.FHIRStoreSinkConfig{
-				FHIRStoreEndpoint:    testServer.URL,
-				FHIRProjectID:        projectID,
-				FHIRLocation:         location,
-				FHIRDatasetID:        datasetID,
-				FHIRStoreID:          fhirStoreID,
+				FHIRStoreConfig: &fhirstore.Config{
+					CloudHealthcareEndpoint: testServer.URL,
+					ProjectID:               projectID,
+					Location:                location,
+					DatasetID:               datasetID,
+					FHIRStoreID:             fhirStoreID,
+				},
 				MaxWorkers:           numWorkers,
 				ErrorFileOutputPath:  outputPrefix,
 				BatchUpload:          true,
@@ -455,11 +464,13 @@ func TestDirectFHIRStoreSink_Errors(t *testing.T) {
 			}
 			ctx := context.Background()
 			sink, err := processing.NewFHIRStoreSink(context.Background(), &processing.FHIRStoreSinkConfig{
-				FHIRStoreEndpoint:    testServer.URL,
-				FHIRProjectID:        fhirStoreProjectID,
-				FHIRLocation:         fhirStoreLocation,
-				FHIRDatasetID:        fhirStoreDatasetID,
-				FHIRStoreID:          fhirStoreID,
+				FHIRStoreConfig: &fhirstore.Config{
+					CloudHealthcareEndpoint: testServer.URL,
+					ProjectID:               fhirStoreProjectID,
+					Location:                fhirStoreLocation,
+					DatasetID:               fhirStoreDatasetID,
+					FHIRStoreID:             fhirStoreID,
+				},
 				MaxWorkers:           numWorkers,
 				ErrorFileOutputPath:  outputPrefix,
 				NoFailOnUploadErrors: true,
@@ -548,11 +559,13 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 	tt.Set(transactionTime)
 
 	sink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
-		FHIRStoreEndpoint: fhirStoreServer.URL,
-		FHIRStoreID:       gcpFHIRStoreID,
-		FHIRProjectID:     gcpProject,
-		FHIRLocation:      gcpLocation,
-		FHIRDatasetID:     gcpDatasetID,
+		FHIRStoreConfig: &fhirstore.Config{
+			CloudHealthcareEndpoint: fhirStoreServer.URL,
+			ProjectID:               gcpProject,
+			Location:                gcpLocation,
+			DatasetID:               gcpDatasetID,
+			FHIRStoreID:             gcpFHIRStoreID,
+		},
 
 		UseGCSUpload: true,
 
