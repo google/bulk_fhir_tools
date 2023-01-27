@@ -12,6 +12,7 @@ require (
         github.com/google/fhir/go v0.0.0-20210908190838-d77f57706c1a
         github.com/google/go-cmp v0.5.9
         github.com/google/uuid v1.3.0
+        github.com/julienschmidt/httprouter v1.3.0
         google.golang.org/api v0.103.0
         google.golang.org/grpc v1.52.3
         google.golang.org/protobuf v1.28.1
