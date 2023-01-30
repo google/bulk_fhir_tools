@@ -47,7 +47,7 @@ SCHEDULER_SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
 # FHIR Ingestion Flags
 FHIR_SERVER_BASE_URL="https://sandbox.bcda.cms.gov/api/v2"
 FHIR_AUTH_URL="https://sandbox.bcda.cms.gov/auth/token"
-FHIR_AUTH_SCOPES=""  # Comma seperated list, if needed.
+FHIR_AUTH_SCOPES=""  # Comma separated list, if needed.
 
 # GCP Flags
 PROJECT="YOUR_PROJECT"
@@ -80,7 +80,7 @@ gcloud workflows deploy ${WORKFLOW_NAME} --source="bulk_fetch_workflow.yaml" --l
 # After running this script for the first time, you must delete the old
 # scheduler to replace it with a new one. To do so, uncomment the line below or
 # delete the scheduler in the GCP UI.
-# gcloud scheduler jobs delete http ${SCHEDULER_NAME}
+# gcloud scheduler jobs delete ${SCHEDULER_NAME} --location=${LOCATION}
 echo "Creating scheduler. Note if scheduler already exists, it must be deleted first."
 gcloud scheduler jobs create http ${SCHEDULER_NAME} \
     --schedule="${SCHEDULE_CRON}" \

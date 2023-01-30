@@ -24,18 +24,31 @@ main:
           - batchApiUrl: ${"https://" + batchApi + "/projects/" + projectId + "/locations/" + region + "/jobs"}
           - imageUri: "golang:latest"
           - jobId: ${"job-bulk-fetch-batch-" + string(int(sys.now()))}
-          - bucket: ${projectId + "-" + jobId}
+          - bucket: ${projectId + "-bulk-fhir-fetch"}
     - createBucket:
-        call: googleapis.storage.v1.buckets.insert
-        args:
-          query:
-            project: ${projectId}
-          body:
-            name: ${bucket}
+        try:
+          call: googleapis.storage.v1.buckets.insert
+          args:
+            query:
+              project: ${projectId}
+            body:
+              name: ${bucket}
+        except:
+          as: e
+          steps:
+              - check_exists:
+                  switch:
+                  - condition: ${e.code == 409}
+                    call: sys.log
+                    args:
+                      data: ${"Bucket " + bucket + " already exists. Continuing."}
+                    next: logCreateBatchJob
+              - unexpected_error:
+                  raise: ${e}
     - logCreateBucket:
         call: sys.log
         args:
-          data: ${"Created bucket " + bucket}
+          data: ${"Created bucket " + bucket + "."}
     - logCreateBatchJob:
         call: sys.log
         args:
