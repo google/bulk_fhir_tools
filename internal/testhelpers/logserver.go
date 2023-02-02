@@ -16,11 +16,11 @@ package testhelpers
 
 import (
 	"context"
+	"log"
 	"net"
 	"sync"
 	"time"
 
-	log "github.com/golang/glog"
 	tspb "github.com/golang/protobuf/ptypes/timestamp"
 	logpb "cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/grpc"
@@ -71,7 +71,7 @@ func newServer() (*GRPCServer, error) {
 func (s *GRPCServer) start() {
 	go func() {
 		if err := s.gsrv.Serve(s.l); err != nil {
-			log.Infof("GRPCServer.start error: %v", err)
+			log.Printf("GRPCServer.start error: %v", err)
 		}
 	}()
 }
