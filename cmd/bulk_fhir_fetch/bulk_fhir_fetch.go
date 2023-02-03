@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// fetch is an example program that uses the bulkfhir API client library to retrieve
-// resources from a bulk FHIR API like BCDA.
+// bulk_fhir_fetch is an example program that uses the bulkfhir API client library to retrieve
+// resources from a bulk FHIR API like BCDA (https://bcda.cms.gov).
 package main
 
 import (
@@ -171,10 +171,10 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		fhirStoreSink, err := processing.NewFHIRStoreSink(ctx, &processing.FHIRStoreSinkConfig{
 			FHIRStoreConfig: &fhirstore.Config{
 				CloudHealthcareEndpoint: cfg.fhirStoreEndpoint,
-				FHIRStoreID: cfg.fhirStoreID,
-				ProjectID: cfg.fhirStoreGCPProject,
-				DatasetID:   cfg.fhirStoreGCPDatasetID,
-				Location:    cfg.fhirStoreGCPLocation,
+				FHIRStoreID:             cfg.fhirStoreID,
+				ProjectID:               cfg.fhirStoreGCPProject,
+				DatasetID:               cfg.fhirStoreGCPDatasetID,
+				Location:                cfg.fhirStoreGCPLocation,
 			},
 			NoFailOnUploadErrors: cfg.noFailOnUploadErrors,
 
