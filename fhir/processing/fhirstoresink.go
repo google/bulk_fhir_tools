@@ -24,11 +24,11 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/golang/glog"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/internal/counter"
+	log "github.com/google/medical_claims_tools/internal/logger"
 )
 
 // ErrUploadFailures is returned (wrapped) when uploads to FHIR Store have
@@ -112,7 +112,7 @@ func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
 	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreCfg)
 	if err != nil {
-		log.Exitf("error initializing FHIR store client: %v", err)
+		log.Fatalf("error initializing FHIR store client: %v", err)
 	}
 
 	for fhirJSON := range dfss.fhirJSONs {
@@ -133,7 +133,7 @@ func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
 func (dfss *directFHIRStoreSink) uploadBatchWorker(ctx context.Context) {
 	c, err := fhirstore.NewClient(ctx, dfss.fhirStoreCfg)
 	if err != nil {
-		log.Exitf("error initializing FHIR store client: %v", err)
+		log.Fatalf("error initializing FHIR store client: %v", err)
 	}
 
 	fhirBatchBuffer := make([][]byte, dfss.batchSize)

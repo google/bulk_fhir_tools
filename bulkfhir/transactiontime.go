@@ -23,7 +23,7 @@ import (
 	"os"
 	"time"
 
-	log "github.com/golang/glog"
+	log "github.com/google/medical_claims_tools/internal/logger"
 	"cloud.google.com/go/storage"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/gcs"

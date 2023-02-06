@@ -97,13 +97,9 @@ to follow your organization's policies with respect to PHI.__
     -client_secret=YOUR_SECRET \
     -bcda_server_url="https://sandbox.bcda.cms.gov" \
     -output_dir="/path/to/store/output/data" \
-    -alsologtostderr=true -stderrthreshold=0
   ```
   Change the -bcda_server_url as needed. You will need to change it if you are
   using the production API servers.
-
-  Feel free to change the stderrthreshold depending on what kinds of logs you
-  wish to see. More details on logging flags can be found [here](https://github.com/google/glog#setting-flags).
 
 * __Rectify the data to pass R4 Validation.__ By default, the FHIR R4 Data
 returned by BCDA does not satisfy the default FHIR R4 profile at the time of
@@ -158,7 +154,6 @@ Note, do not run concurrent instances of fetch that use the same since file.
     -fhir_store_gcp_location="us-east4" \
     -fhir_store_gcp_dataset_id="your_gcp_dataset_id" \
     -fhir_store_id="your_fhir_store_id" \
-    -alsologtostderr=true -stderrthreshold=0
   ```
 
   Note: If `-enable_fhir_store=true` specifying `-output_dir` is optional. If

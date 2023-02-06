@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,7 +45,6 @@ import (
 	"time"
 
 	"flag"
-	log "github.com/golang/glog"
 	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
 )
@@ -119,7 +119,7 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 
 	dateEntries, err := os.ReadDir(filepath.Join(s.dataDir, groupID))
 	if err != nil {
-		log.Error(err)
+		log.Print(err)
 		if os.IsNotExist(err) {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("Export group %s not found", groupID))
 			return
@@ -196,7 +196,7 @@ func (s *server) exportStatus(w http.ResponseWriter, req *http.Request, ps httpr
 
 	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write(response); err != nil {
-		log.Error(err)
+		log.Print(err)
 	}
 }
 
@@ -220,7 +220,7 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 	}
 	w.Header().Set("Content-Type", "application/fhir+ndjson")
 	if _, err := io.Copy(w, fh); err != nil {
-		log.Error(err)
+		log.Print(err)
 	}
 }
 
@@ -243,6 +243,6 @@ func main() {
 	srv.registerHandlers()
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
-		log.Exit(err)
+		log.Fatal(err)
 	}
 }

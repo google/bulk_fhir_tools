@@ -20,17 +20,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	stdlog "log"
 	"strings"
 	"time"
 
 	"flag"
-	log "github.com/golang/glog"
 	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fetcher"
 	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/gcs"
+	log "github.com/google/medical_claims_tools/internal/logger"
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
@@ -42,6 +43,7 @@ var (
 	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
+	enableGCPLogging            = flag.Bool("enable_gcp_logging", false, "If true, logs will be written to GCP instead of stdout. If true, fhirStoreGCPProject must be set to specify which GCP Project ID to write logs to.")
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
 	maxFHIRStoreUploadWorkers   = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
 	fhirStoreGCPProject         = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
@@ -85,7 +87,7 @@ const (
 func main() {
 	flag.Parse()
 	if err := mainWrapper(buildMainWrapperConfig()); err != nil {
-		log.Exit(err)
+		log.Fatal(err)
 	}
 }
 
@@ -93,23 +95,17 @@ func main() {
 func mainWrapper(cfg mainWrapperConfig) error {
 	ctx := context.Background()
 
-	if cfg.clientID == "" || cfg.clientSecret == "" {
-		return errors.New("both clientID and clientSecret flags must be non-empty")
+	if err := validateConfig(cfg); err != nil {
+		return err
 	}
 
-	if cfg.enableFHIRStore && (cfg.fhirStoreGCPProject == "" ||
-		cfg.fhirStoreGCPLocation == "" ||
-		cfg.fhirStoreGCPDatasetID == "" ||
-		cfg.fhirStoreID == "") {
-		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
-	}
-
-	if cfg.enableFHIRStore && !cfg.rectify {
-		return errMustRectifyForFHIRStore
-	}
-
-	if cfg.fhirStoreEnableGCSBasedUpload && cfg.fhirStoreGCSBasedUploadBucket == "" {
-		return errMustSpecifyGCSBucket
+	if cfg.enableGCPLog {
+		log.InitGCP(ctx, cfg.fhirStoreGCPProject)
+		defer func() {
+			if err := log.Close(); err != nil {
+				stdlog.Printf("error closing the logger: %v", err)
+			}
+		}()
 	}
 
 	if cfg.outputPrefix != "" {
@@ -119,7 +115,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	}
 
 	if cfg.outputDir == "" && !cfg.enableFHIRStore {
-		log.Warningln("outputDir is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
+		log.Warning("outputDir is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
 	cl, err := getBulkFHIRClient(cfg)
@@ -264,6 +260,32 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath)
 }
 
+func validateConfig(cfg mainWrapperConfig) error {
+	if cfg.clientID == "" || cfg.clientSecret == "" {
+		return errors.New("both clientID and clientSecret flags must be non-empty")
+	}
+
+	if cfg.enableFHIRStore && (cfg.fhirStoreGCPProject == "" ||
+		cfg.fhirStoreGCPLocation == "" ||
+		cfg.fhirStoreGCPDatasetID == "" ||
+		cfg.fhirStoreID == "") {
+		return errors.New("if enable_fhir_store is true, all other FHIR store related flags must be set")
+	}
+
+	if cfg.enableGCPLog && cfg.fhirStoreGCPProject == "" {
+		return errors.New("if enable_gcp_log is true, fhir_store_gcp_project must be set")
+	}
+
+	if cfg.enableFHIRStore && !cfg.rectify {
+		return errMustRectifyForFHIRStore
+	}
+
+	if cfg.fhirStoreEnableGCSBasedUpload && cfg.fhirStoreGCSBasedUploadBucket == "" {
+		return errMustSpecifyGCSBucket
+	}
+	return nil
+}
+
 // mainWrapperConfig holds non-flag (for now) config variables for the
 // mainWrapper function. This is largely to assist in better testing without
 // having to change global variables.
@@ -279,6 +301,7 @@ type mainWrapperConfig struct {
 	outputPrefix                  string
 	outputDir                     string
 	rectify                       bool
+	enableGCPLog                  bool
 	enableFHIRStore               bool
 	maxFHIRStoreUploadWorkers     int
 	fhirStoreGCPProject           string
@@ -312,6 +335,7 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		outputDir:    *outputDir,
 		rectify:      *rectify,
 
+		enableGCPLog:                *enableGCPLogging,
 		enableFHIRStore:             *enableFHIRStore,
 		maxFHIRStoreUploadWorkers:   *maxFHIRStoreUploadWorkers,
 		fhirStoreGCPProject:         *fhirStoreGCPProject,
