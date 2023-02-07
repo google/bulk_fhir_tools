@@ -43,11 +43,11 @@ func TestTestServer_ValidExport(t *testing.T) {
 	transactionTime := "2018-09-17T17:53:11.476Z"
 
 	dataDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dataDir, groupName), os.ModePerm); err != nil {
+	if err := os.Mkdir(filepath.Join(dataDir, groupName), os.ModePerm); err != nil {
 		t.Fatalf("Unable to create test directory: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dataDir, groupName, transactionTime), os.ModePerm); err != nil {
-		t.Fatalf("Unable to create test directory: %v", err)
+	if err := os.Mkdir(filepath.Join(dataDir, groupName, transactionTime), os.ModePerm); err != nil {
+		t.Fatalf("Unable to create test with transaction time directory: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dataDir, groupName, transactionTime, file1Name), file1Data, 0644); err != nil {
 		t.Fatalf("Unable to write test setup data: %v", err)
