@@ -50,11 +50,19 @@ import (
 )
 
 var (
-	port       = flag.Int("port", 8000, "Port to listen on")
-	dataDir    = flag.String("data_dir", "", "Directory to read data to be served from")
-	jobDelay   = flag.Duration("job_delay", time.Minute, "How long jobs take to complete. Use time.ParseDuration syntax (e.g. 1h15m30s)")
-	retryAfter = flag.Int("retry_after", 10, "Value of the Retry-After header for incomplete jobs")
+	port         = flag.Int("port", 8000, "Port to listen on")
+	dataDir      = flag.String("data_dir", "", "Directory to read data to be served from")
+	jobDelay     = flag.Duration("job_delay", time.Minute, "How long jobs take to complete. Use time.ParseDuration syntax (e.g. 1h15m30s)")
+	retryAfter   = flag.Int("retry_after", 10, "Value of the Retry-After header for incomplete jobs")
+	clientID     = flag.String("client_id", "", "the value of client ID this server should accept.")
+	clientSecret = flag.String("client_secret", "", "the value of client secret this server should accept.")
 )
+
+// token represents the only valid token this server recognizes in authenticated requests.
+// TODO(b/266077987): add support for token TTLs, more advanced auth behavior.
+const token = "thisisthetoken"
+
+const authorizationHeader = "Authorization"
 
 type fileKey struct {
 	resourceType, index string
@@ -79,9 +87,11 @@ type exportJob struct {
 }
 
 type server struct {
-	dataDir string
-	baseURL string
-	jobs    map[string]*exportJob
+	dataDir           string
+	baseURL           string
+	jobs              map[string]*exportJob
+	validClientID     string
+	validClientSecret string
 }
 
 const errorFormat = `{
@@ -102,6 +112,21 @@ func writeError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/fhir+json")
 	w.WriteHeader(code)
 	fmt.Fprintf(w, errorFormat, message)
+}
+
+func (s *server) getToken(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
+	id, sec, ok := req.BasicAuth()
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Invalid basic auth configuration.")
+		return
+	}
+	if id != s.validClientID || sec != s.validClientSecret {
+		writeError(w, http.StatusUnauthorized, "Invalid credentials.")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`{"access_token": "%s", "expires_in": 1200}`, token)))
 }
 
 func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
@@ -224,11 +249,25 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 	}
 }
 
+func requiresAuth(handle httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
+		// Check token:
+		if gotToken := req.Header.Get(authorizationHeader); gotToken != fmt.Sprintf("Bearer %s", token) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// Token ok, call handler logic.
+		handle(w, req, ps)
+	}
+}
+
 func (s *server) registerHandlers() {
 	r := httprouter.New()
-	r.GET("/Group/:groupID/$export", s.startExport)
-	r.GET("/requests/:requestID", s.exportStatus)
-	r.GET("/requests/:requestID/:resourceType/:index", s.serveResource)
+	r.POST("/token", s.getToken)
+	r.GET("/Group/:groupID/$export", requiresAuth(s.startExport))
+	r.GET("/requests/:requestID", requiresAuth(s.exportStatus))
+	r.GET("/requests/:requestID/:resourceType/:index", requiresAuth(s.serveResource))
 	http.Handle("/", r)
 }
 
@@ -236,9 +275,11 @@ func main() {
 	flag.Parse()
 
 	srv := &server{
-		dataDir: *dataDir,
-		baseURL: fmt.Sprintf("http://localhost:%d", *port),
-		jobs:    map[string]*exportJob{},
+		dataDir:           *dataDir,
+		baseURL:           fmt.Sprintf("http://localhost:%d", *port),
+		jobs:              map[string]*exportJob{},
+		validClientID:     *clientID,
+		validClientSecret: *clientSecret,
 	}
 	srv.registerHandlers()
 
