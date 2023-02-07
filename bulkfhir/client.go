@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
 	"github.com/google/medical_claims_tools/fhir"
+	log "github.com/google/medical_claims_tools/internal/logger"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )

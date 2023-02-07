@@ -90,6 +90,7 @@ type server struct {
 	dataDir           string
 	baseURL           string
 	jobs              map[string]*exportJob
+	jobDelay          time.Duration
 	validClientID     string
 	validClientSecret string
 }
@@ -132,7 +133,7 @@ func (s *server) getToken(w http.ResponseWriter, req *http.Request, ps httproute
 func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	job := &exportJob{
 		startTime: time.Now(),
-		readyTime: time.Now().Add(*jobDelay),
+		readyTime: time.Now().Add(s.jobDelay),
 		filepaths: map[fileKey]string{},
 		response: statusResponse{
 			Request:             req.URL.String(),
@@ -278,6 +279,7 @@ func main() {
 		dataDir:           *dataDir,
 		baseURL:           fmt.Sprintf("http://localhost:%d", *port),
 		jobs:              map[string]*exportJob{},
+		jobDelay:          *jobDelay,
 		validClientID:     *clientID,
 		validClientSecret: *clientSecret,
 	}
