@@ -250,6 +250,10 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 	}
 }
 
+func (s *server) hello(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
+	w.Write([]byte("Hello there!"))
+}
+
 func requiresAuth(handle httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 		// Check token:
@@ -263,13 +267,14 @@ func requiresAuth(handle httprouter.Handle) httprouter.Handle {
 	}
 }
 
-func (s *server) registerHandlers() {
+func (s *server) buildHandler() http.Handler {
 	r := httprouter.New()
 	r.POST("/token", s.getToken)
 	r.GET("/Group/:groupID/$export", requiresAuth(s.startExport))
 	r.GET("/requests/:requestID", requiresAuth(s.exportStatus))
 	r.GET("/requests/:requestID/:resourceType/:index", requiresAuth(s.serveResource))
-	http.Handle("/", r)
+	r.GET("/hello", s.hello)
+	return r
 }
 
 func main() {
@@ -283,8 +288,9 @@ func main() {
 		validClientID:     *clientID,
 		validClientSecret: *clientSecret,
 	}
-	srv.registerHandlers()
+	handler := srv.buildHandler()
 
+	http.Handle("/", handler)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
 		log.Fatal(err)
 	}

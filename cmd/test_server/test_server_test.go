@@ -113,6 +113,24 @@ func TestTestServer_ValidExport(t *testing.T) {
 	}
 }
 
+func TestTestServer_Hello(t *testing.T) {
+	t.Parallel()
+	serverURL := runTestServer(t, t.TempDir(), "", "")
+	t.Logf(serverURL)
+	resp, err := http.Get(serverURL + "/hello")
+	if err != nil {
+		t.Errorf("unexpected error when making request: %v", err)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("unexpeced error when reading response body: %v", err)
+	}
+
+	if !cmp.Equal(data, []byte("Hello there!")) {
+		t.Errorf("unexpected response body. got: %v, want: %v", data, []byte("Hello there!"))
+	}
+}
+
 func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret string) string {
 	testServer := &server{
 		dataDir:           dataDir,
@@ -121,9 +139,8 @@ func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret strin
 		validClientSecret: validClientSecret,
 		jobDelay:          2 * time.Second,
 	}
-	testServer.registerHandlers()
-
-	server := httptest.NewServer(http.DefaultServeMux)
+	h := testServer.buildHandler()
+	server := httptest.NewServer(h)
 	testServer.baseURL = server.URL
 	t.Logf("base url: %v", testServer.baseURL)
 	t.Cleanup(server.Close)
