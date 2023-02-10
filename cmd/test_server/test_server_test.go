@@ -44,72 +44,97 @@ func TestTestServer_ValidExport(t *testing.T) {
 		return
 	}
 
-	file1Name := "Patient_0.ndjson"
-	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-	clientID := "clientID"
-	clientSecret := "clientSecret"
-	groupName := "all"
-	transactionTime := "2018-09-17T17:53:11.476Z"
+	cases := []struct {
+		name             string
+		dataDir          string
+		expectedFileData []byte
+	}{
+		{
+			name:             "WithDataDir",
+			dataDir:          t.TempDir(),
+			expectedFileData: []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`),
+		},
+		{
+			name:             "WithoutDataDir",
+			dataDir:          "",
+			expectedFileData: defaultFileData,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	dataDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dataDir, groupName, transactionTime), 0755); err != nil {
-		t.Fatalf("Unable to create test directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dataDir, groupName, transactionTime, file1Name), file1Data, 0644); err != nil {
-		t.Fatalf("Unable to write test setup data: %v", err)
-	}
+			file1Name := "Patient_0.ndjson"
+			file1Data := []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`)
 
-	baseURL := runTestServer(t, dataDir, clientID, clientSecret)
+			clientID := "clientID"
+			clientSecret := "clientSecret"
+			groupName := "all"
+			transactionTime := "2018-09-17T17:53:11.476Z"
 
-	auth, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, fmt.Sprintf("%s/token", baseURL), nil)
-	if err != nil {
-		t.Fatalf("Error creating HTTPBasicOAuth authenticator: %v", err)
-	}
-	c, err := bulkfhir.NewClient(baseURL, auth)
-	if err != nil {
-		t.Fatalf("Error creating bulkfhir client: %v", err)
-	}
+			if tc.dataDir != "" {
+				if err := os.MkdirAll(filepath.Join(tc.dataDir, groupName, transactionTime), 0755); err != nil {
+					t.Fatalf("Unable to create test directory: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(tc.dataDir, groupName, transactionTime, file1Name), file1Data, 0644); err != nil {
+					t.Fatalf("Unable to write test setup data: %v", err)
+				}
+			}
 
-	nativeTransactionTime, err := fhir.ParseFHIRInstant(transactionTime)
-	if err != nil {
-		t.Fatalf("Error parsing transaction time: %v", err)
-	}
+			baseURL := runTestServer(t, tc.dataDir, clientID, clientSecret)
 
-	// Start export:
-	jobURL, err := c.StartBulkDataExport([]cpb.ResourceTypeCode_Value{
-		cpb.ResourceTypeCode_PATIENT}, nativeTransactionTime, groupName)
-	if err != nil {
-		t.Errorf("Error starting bulk fhir export: %v", err)
-	}
+			auth, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, fmt.Sprintf("%s/token", baseURL), nil)
+			if err != nil {
+				t.Fatalf("Error creating HTTPBasicOAuth authenticator: %v", err)
+			}
+			c, err := bulkfhir.NewClient(baseURL, auth)
+			if err != nil {
+				t.Fatalf("Error creating bulkfhir client: %v", err)
+			}
 
-	// Check job status:
-	var result *bulkfhir.MonitorResult
-	for result = range c.MonitorJobStatus(jobURL, time.Second, time.Minute) {
-		if result.Error != nil {
-			t.Errorf("Error in checking job status: %v", result.Error)
-		}
-	}
+			nativeTransactionTime, err := fhir.ParseFHIRInstant(transactionTime)
+			if err != nil {
+				t.Fatalf("Error parsing transaction time: %v", err)
+			}
 
-	if len(result.Status.ResultURLs) != 1 {
-		t.Errorf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), 1)
-	}
-	if len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]) != 1 {
-		t.Errorf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
-	}
+			// Start export:
+			jobURL, err := c.StartBulkDataExport([]cpb.ResourceTypeCode_Value{
+				cpb.ResourceTypeCode_PATIENT}, nativeTransactionTime, groupName)
+			if err != nil {
+				t.Errorf("Error starting bulk fhir export: %v", err)
+			}
 
-	// Download data:
-	d, err := c.GetData(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT][0])
-	if err != nil {
-		t.Errorf("Error getting data: %v", err)
-	}
+			// Check job status:
+			var result *bulkfhir.MonitorResult
+			for result = range c.MonitorJobStatus(jobURL, time.Second, time.Minute) {
+				if result.Error != nil {
+					t.Errorf("Error in checking job status: %v", result.Error)
+				}
+			}
 
-	gotData, err := io.ReadAll(d)
-	if err != nil {
-		t.Errorf("Error downloading data: %v", err)
-	}
+			if len(result.Status.ResultURLs) != 1 {
+				t.Errorf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), 1)
+			}
+			if len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]) != 1 {
+				t.Errorf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
+			}
 
-	if !cmp.Equal(gotData, file1Data) {
-		t.Errorf("Unexpected Patient data. got: %v, want: %v", gotData, file1Data)
+			// Download data:
+			d, err := c.GetData(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT][0])
+			if err != nil {
+				t.Errorf("Error getting data: %v", err)
+			}
+
+			gotData, err := io.ReadAll(d)
+			if err != nil {
+				t.Errorf("Error downloading data: %v", err)
+			}
+
+			if !cmp.Equal(gotData, tc.expectedFileData) {
+				t.Errorf("Unexpected Patient data. got: %v, want: %v", gotData, tc.expectedFileData)
+			}
+		})
 	}
 }
 

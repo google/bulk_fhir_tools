@@ -47,11 +47,12 @@ import (
 	"flag"
 	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/google/medical_claims_tools/fhir"
 )
 
 var (
 	port         = flag.Int("port", 8000, "Port to listen on")
-	dataDir      = flag.String("data_dir", "", "Directory to read data to be served from")
+	dataDir      = flag.String("data_dir", "", "Directory to read data to be served from. If empty, the server will always serve some pre-canned basic FHIR data.")
 	jobDelay     = flag.Duration("job_delay", time.Minute, "How long jobs take to complete. Use time.ParseDuration syntax (e.g. 1h15m30s)")
 	retryAfter   = flag.Int("retry_after", 10, "Value of the Retry-After header for incomplete jobs")
 	clientID     = flag.String("client_id", "", "the value of client ID this server should accept.")
@@ -109,6 +110,9 @@ const errorFormat = `{
  ]
 }`
 
+var defaultResourceID = "Patient"
+var defaultFileData = []byte(`{"resourceType":"Patient","id":"PatientID"}`)
+
 func writeError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/fhir+json")
 	w.WriteHeader(code)
@@ -130,6 +134,13 @@ func (s *server) getToken(w http.ResponseWriter, req *http.Request, ps httproute
 	w.Write([]byte(fmt.Sprintf(`{"access_token": "%s", "expires_in": 1200}`, token)))
 }
 
+func (s *server) acceptJob(requestID string, job *exportJob, w http.ResponseWriter) {
+	s.jobs[requestID] = job
+
+	w.Header().Set("Content-Location", fmt.Sprintf("%s/requests/%s", s.baseURL, requestID))
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	job := &exportJob{
 		startTime: time.Now(),
@@ -142,6 +153,17 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 	}
 	groupID := ps.ByName("groupID")
 	requestID := uuid.New().String()
+
+	if s.dataDir == "" {
+		// No dataDir configured, use default job that returns some default pre-stored data.
+		job.response.Output = append(job.response.Output, outputItem{
+			ResourceType: defaultResourceID,
+			URL:          fmt.Sprintf("%s/requests/%s/%s/%d", s.baseURL, requestID, defaultResourceID, 1),
+		})
+		job.response.TransactionTime = fhir.ToFHIRInstant(time.Now())
+		s.acceptJob(requestID, job, w)
+		return
+	}
 
 	dateEntries, err := os.ReadDir(filepath.Join(s.dataDir, groupID))
 	if err != nil {
@@ -191,10 +213,8 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 			URL:          fmt.Sprintf("%s/requests/%s/%s/%s", s.baseURL, requestID, resourceType, index),
 		})
 	}
-	s.jobs[requestID] = job
 
-	w.Header().Set("Content-Location", fmt.Sprintf("%s/requests/%s", s.baseURL, requestID))
-	w.WriteHeader(http.StatusAccepted)
+	s.acceptJob(requestID, job, w)
 }
 
 func (s *server) exportStatus(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
@@ -230,6 +250,15 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 	job, ok := s.jobs[ps.ByName("requestID")]
 	if !ok {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("Request ID %s not found", ps.ByName("requestID")))
+		return
+	}
+
+	if s.dataDir == "" && len(job.filepaths) == 0 {
+		// No dataDir is configured, so we return the default file information.
+		w.Header().Set("Content-Type", "application/fhir+ndjson")
+		if _, err := w.Write(defaultFileData); err != nil {
+			log.Print(err)
+		}
 		return
 	}
 
