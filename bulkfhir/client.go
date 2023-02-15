@@ -110,8 +110,8 @@ const (
 	bulkDataExportEndpointFmtStr = "/Group/%s/$export"
 )
 
-// progressREGEX matches strings like "(50%)" and captures the percentile number (50).
-var progressREGEX = regexp.MustCompile(`\(([0-9]+?)%\)`)
+// progressREGEX matches strings like "50%" and captures the percentile number (50).
+var progressREGEX = regexp.MustCompile(`([0-9]+?)%`)
 
 // Authenticate calls through to the Authenticator the client was built with to
 // unconditionally perform credential exchange.

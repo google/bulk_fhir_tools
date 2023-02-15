@@ -221,24 +221,43 @@ func TestClient_GetJobStatus(t *testing.T) {
 	})
 
 	t.Run("job in progress", func(t *testing.T) {
+		cases := []struct {
+			name             string
+			progressString   string
+			expectedProgress int
+		}{
+			{
+				name:             "ProgressParentheses",
+				progressString:   "(60%)",
+				expectedProgress: 60,
+			},
+			{
+				name:             "ProgressWithOtherText",
+				progressString:   "61% Progress",
+				expectedProgress: 61,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					w.Header()["X-Progress"] = []string{tc.progressString}
+					w.WriteHeader(http.StatusAccepted)
+				}))
+				jobStatusURL := server.URL
+				cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
+				jobStatus, err := cl.JobStatus(jobStatusURL)
+				if err != nil {
+					t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
+				}
+				if jobStatus.IsComplete {
+					t.Errorf("GetJobStatus(%v) got complete JobStatus, expected incomplete", jobStatusURL)
+				}
+				if got, want := jobStatus.PercentComplete, tc.expectedProgress; got != want {
+					t.Errorf("GetJobStatus(%v) returned incorrect percent complete: got: %d, want: %d", jobStatusURL, got, want)
+				}
+			})
+		}
 
-		expectedProgress := 60
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", expectedProgress)}
-			w.WriteHeader(http.StatusAccepted)
-		}))
-		jobStatusURL := server.URL
-		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		jobStatus, err := cl.JobStatus(jobStatusURL)
-		if err != nil {
-			t.Errorf("GetJobStatus(%v) returned unexpected error: %v", jobStatusURL, err)
-		}
-		if jobStatus.IsComplete {
-			t.Errorf("GetJobStatus(%v) got complete JobStatus, expected incomplete", jobStatusURL)
-		}
-		if got, want := jobStatus.PercentComplete, expectedProgress; got != want {
-			t.Errorf("GetJobStatus(%v) returned incorrect percent complete: got: %d, want: %d", jobStatusURL, got, want)
-		}
 	})
 
 	t.Run("job completed", func(t *testing.T) {
