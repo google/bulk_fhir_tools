@@ -33,6 +33,13 @@ type counter interface {
 	// in the call to Init. Init must be called before the first call to Record.
 	// Counters should not store any PHI.
 	Record(ctx context.Context, val int64, tagValues ...string) error
+
+	// Close closes the counter and returns the result of the counter. The results
+	// map a concatenation of the tagValues to count for those tagValues. If no
+	// tags are used then the result will map the name to the count. In some
+	// implementations calling close may not be necessary, in which case the bool
+	// will be false.
+	Close() (map[string]int64, bool)
 }
 type latency interface {
 	// Init should be called once before the Record method is called on this
@@ -47,4 +54,14 @@ type latency interface {
 	// in the call to Init. Init must be called before the first call to Record.
 	// Metrics should not store any PHI.
 	Record(ctx context.Context, val float64, tagValues ...string) error
+
+	// Close closes the latency and returns the results. The results map a
+	// concatenation of the tagValues to distribution for those tagValues. If no
+	// tags are used then the results will map the name to the distribution. The
+	// distribution is defined by the Buckets. For example,
+	// Buckets: [0, 3, 5] will create a distribution with 4 buckets where the last
+	// bucket is anything > 5. Dist: <0, >=0 <3, >=3 <5, >=5. In some
+	// implementations calling close may not be necessary, in which case the bool
+	// will be false.
+	Close() (map[string][]int, bool)
 }
