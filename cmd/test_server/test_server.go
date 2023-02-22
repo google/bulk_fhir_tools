@@ -20,17 +20,21 @@
 // The server runs based on NDJSON files under the directory given in the
 // --data_dir flag, which should be organised as follows:
 //
-//	{--data_dir}/{export_group_id}/{transaction_time}/{resource_type}_{index}.ndjson
+//	{--data_dir}/{export_group_id}/{timestamp}/{resource_type}_{index}.ndjson
+//
+// timestamp should be of the form YYYYMMDDTHHMMSSZ (e.g. 20230217T142649Z).
+// This compact form avoids special characters which cannot be used in file
+// paths on Windows.
 //
 // For the provided export_group_id, the server will provide the dataset with
-// the earliest transaction_time which is greater than the _since parameter (or
-// the earliest transaction_time overall if the _since parameter is unset).
+// the earliest timestamp which is greater than the _since parameter (or the
+// earliest timestamp overall if the _since parameter is unset).
 
-// If no dataset exists with a transaction_time greater than the _since
-// parameter, this server will return a 404 error to the initial $export call -
-// this is assumed to be an error in setting up the test. If you wish to test
-// the case of there being no changes to the data, or no data at all, you should
-// add a transaction_time folder which is empty.
+// If no dataset exists with a timestamp greater than the _since parameter, this
+// server will return a 404 error to the initial $export call - this is assumed
+// to be an error in setting up the test. If you wish to test the case of there
+// being no changes to the data, or no data at all, you should add a timestamp
+// folder which is empty.
 package main
 
 import (
@@ -92,6 +96,7 @@ type server struct {
 	baseURL           string
 	jobs              map[string]*exportJob
 	jobDelay          time.Duration
+	retryAfter        int
 	validClientID     string
 	validClientSecret string
 }
@@ -113,7 +118,26 @@ const errorFormat = `{
 var defaultResourceID = "Patient"
 var defaultFileData = []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 
+const filepathTimestampFormat = "20060102T150405Z"
+
+func filepathTimestampToFHIRTimestamp(ts string) (string, error) {
+	parsed, err := time.Parse(filepathTimestampFormat, ts)
+	if err != nil {
+		return "", err
+	}
+	return fhir.ToFHIRInstant(parsed), nil
+}
+
+func fhirTimestampToFilepathTimestamp(ts string) (string, error) {
+	parsed, err := fhir.ParseFHIRInstant(ts)
+	if err != nil {
+		return "", err
+	}
+	return parsed.In(time.UTC).Format(filepathTimestampFormat), nil
+}
+
 func writeError(w http.ResponseWriter, code int, message string) {
+	log.Printf("%d - %s", code, message)
 	w.Header().Set("Content-Type", "application/fhir+json")
 	w.WriteHeader(code)
 	fmt.Fprintf(w, errorFormat, message)
@@ -180,18 +204,32 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 		return
 	}
 	since := req.URL.Query().Get("_since")
+	if since != "" {
+		since, err = fhirTimestampToFilepathTimestamp(since)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("_since timestamp is invalid: %v", err))
+			return
+		}
+	}
+	var timestampDir string
 	for _, de := range dateEntries {
 		if de.Name() > since {
-			job.response.TransactionTime = de.Name()
+			timestampDir = de.Name()
 			break
 		}
 	}
-	if job.response.TransactionTime == "" {
+	if timestampDir == "" {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("No data found for export group %s _since %s", groupID, since))
 		return
 	}
+	transactionTime, err := filepathTimestampToFHIRTimestamp(timestampDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("Could not convert data dir %s to transaction timestamp: %v", timestampDir, err))
+		return
+	}
+	job.response.TransactionTime = transactionTime
 
-	dataDir := filepath.Join(s.dataDir, groupID, job.response.TransactionTime)
+	dataDir := filepath.Join(s.dataDir, groupID, timestampDir)
 	dataEntries, err := os.ReadDir(dataDir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -229,7 +267,7 @@ func (s *server) exportStatus(w http.ResponseWriter, req *http.Request, ps httpr
 		// Not ready yet
 		progress := 100 * time.Now().Sub(job.startTime) / job.readyTime.Sub(job.startTime)
 		w.Header().Set("X-Progress", fmt.Sprintf("%d%% complete", progress))
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", *retryAfter))
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", s.retryAfter))
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -273,6 +311,7 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defer fh.Close()
 	w.Header().Set("Content-Type", "application/fhir+ndjson")
 	if _, err := io.Copy(w, fh); err != nil {
 		log.Print(err)
@@ -314,6 +353,7 @@ func main() {
 		baseURL:           fmt.Sprintf("http://localhost:%d", *port),
 		jobs:              map[string]*exportJob{},
 		jobDelay:          *jobDelay,
+		retryAfter:        *retryAfter,
 		validClientID:     *clientID,
 		validClientSecret: *clientSecret,
 	}

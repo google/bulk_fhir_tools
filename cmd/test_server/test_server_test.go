@@ -21,28 +21,82 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fhir"
 )
 
 // This includes some basic __sanity__ tests of the test_server.
 // We will work on configuring some integration testing of bulk_fhir_fetch
 // against the test server, which may be more comprehensive.
 
+func TestTimestampConversion(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	for _, tc := range []struct {
+		description, input, want string
+		fn                       func(string) (string, error)
+	}{
+		{
+			description: "filepath to fhir",
+			input:       "20230217T131545Z",
+			want:        "2023-02-17T13:15:45.000+00:00",
+			fn:          filepathTimestampToFHIRTimestamp,
+		},
+		{
+			description: "fhir to filepath, utc",
+			input:       "2023-02-17T13:15:45Z",
+			want:        "20230217T131545Z",
+			fn:          fhirTimestampToFilepathTimestamp,
+		},
+		{
+			description: "fhir to filepath, with zone",
+			input:       "2023-02-17T13:15:45+07:00",
+			want:        "20230217T061545Z",
+			fn:          fhirTimestampToFilepathTimestamp,
+		},
+		{
+			description: "fhir to filepath, fractional seconds utc",
+			input:       "2023-02-17T13:15:45.123Z",
+			want:        "20230217T131545Z",
+			fn:          fhirTimestampToFilepathTimestamp,
+		},
+		{
+			description: "fhir to filepath, fractional seconds with zone",
+			input:       "2023-02-17T13:15:45.123+07:00",
+			want:        "20230217T061545Z",
+			fn:          fhirTimestampToFilepathTimestamp,
+		},
+		{
+			description: "round trip of arbitrary time",
+			input:       now.Format(filepathTimestampFormat),
+			want:        now.Format(filepathTimestampFormat),
+			fn: func(input string) (string, error) {
+				fhir, err := filepathTimestampToFHIRTimestamp(input)
+				if err != nil {
+					return "", err
+				}
+				return fhirTimestampToFilepathTimestamp(fhir)
+			},
+		},
+	} {
+		t.Run(tc.description, func(t *testing.T) {
+			got, err := tc.fn(tc.input)
+			if err != nil {
+				t.Error(err)
+			} else if got != tc.want {
+				t.Errorf("fn(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTestServer_ValidExport(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		// Skip this test on windows, since the file path conventions of the
-		// test server don't yet work on windows.
-		// TODO(b/268241366): add windows support to the test bulk fhir server.
-		return
-	}
 
 	cases := []struct {
 		name             string
@@ -50,12 +104,12 @@ func TestTestServer_ValidExport(t *testing.T) {
 		expectedFileData []byte
 	}{
 		{
-			name:             "WithDataDir",
+			name:             "With custom data",
 			dataDir:          t.TempDir(),
 			expectedFileData: []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`),
 		},
 		{
-			name:             "WithoutDataDir",
+			name:             "With default data",
 			dataDir:          "",
 			expectedFileData: defaultFileData,
 		},
@@ -71,13 +125,13 @@ func TestTestServer_ValidExport(t *testing.T) {
 			clientID := "clientID"
 			clientSecret := "clientSecret"
 			groupName := "all"
-			transactionTime := "2018-09-17T17:53:11.476Z"
+			dirName := "20180917T175311Z"
 
 			if tc.dataDir != "" {
-				if err := os.MkdirAll(filepath.Join(tc.dataDir, groupName, transactionTime), 0755); err != nil {
+				if err := os.MkdirAll(filepath.Join(tc.dataDir, groupName, dirName), 0755); err != nil {
 					t.Fatalf("Unable to create test directory: %v", err)
 				}
-				if err := os.WriteFile(filepath.Join(tc.dataDir, groupName, transactionTime, file1Name), file1Data, 0644); err != nil {
+				if err := os.WriteFile(filepath.Join(tc.dataDir, groupName, dirName, file1Name), file1Data, 0644); err != nil {
 					t.Fatalf("Unable to write test setup data: %v", err)
 				}
 			}
@@ -93,42 +147,38 @@ func TestTestServer_ValidExport(t *testing.T) {
 				t.Fatalf("Error creating bulkfhir client: %v", err)
 			}
 
-			nativeTransactionTime, err := fhir.ParseFHIRInstant(transactionTime)
-			if err != nil {
-				t.Fatalf("Error parsing transaction time: %v", err)
-			}
-
 			// Start export:
 			jobURL, err := c.StartBulkDataExport([]cpb.ResourceTypeCode_Value{
-				cpb.ResourceTypeCode_PATIENT}, nativeTransactionTime, groupName)
+				cpb.ResourceTypeCode_PATIENT}, time.Time{}, groupName)
 			if err != nil {
-				t.Errorf("Error starting bulk fhir export: %v", err)
+				t.Fatalf("Error starting bulk fhir export: %v", err)
 			}
 
 			// Check job status:
 			var result *bulkfhir.MonitorResult
-			for result = range c.MonitorJobStatus(jobURL, time.Second, time.Minute) {
+			for result = range c.MonitorJobStatus(jobURL, time.Second, 5*time.Second) {
 				if result.Error != nil {
-					t.Errorf("Error in checking job status: %v", result.Error)
+					t.Fatalf("Error in checking job status: %v", result.Error)
 				}
 			}
 
 			if len(result.Status.ResultURLs) != 1 {
-				t.Errorf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), 1)
+				t.Fatalf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), 1)
 			}
 			if len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]) != 1 {
-				t.Errorf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
+				t.Fatalf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
 			}
 
 			// Download data:
 			d, err := c.GetData(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT][0])
 			if err != nil {
-				t.Errorf("Error getting data: %v", err)
+				t.Fatalf("Error getting data: %v", err)
 			}
+			defer d.Close()
 
 			gotData, err := io.ReadAll(d)
 			if err != nil {
-				t.Errorf("Error downloading data: %v", err)
+				t.Fatalf("Error downloading data: %v", err)
 			}
 
 			if !cmp.Equal(gotData, tc.expectedFileData) {
@@ -163,6 +213,7 @@ func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret strin
 		validClientID:     validClientID,
 		validClientSecret: validClientSecret,
 		jobDelay:          2 * time.Second,
+		retryAfter:        1,
 	}
 	h := testServer.buildHandler()
 	server := httptest.NewServer(h)
