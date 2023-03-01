@@ -652,8 +652,8 @@ func TestClient_MonitorJobStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 		auth.(*BearerTokenAuthenticator).token = &BearerToken{
-			token:  "123",
-			expiry: time.Now().Add(5 * time.Minute),
+			Token:  "123",
+			Expiry: time.Now().Add(5 * time.Minute),
 		}
 		cl := Client{authenticator: auth, baseURL: server.URL, httpClient: &http.Client{}}
 		results := make([]JobStatus, 0, 1)

@@ -67,9 +67,9 @@ type Authenticator interface {
 
 // BearerToken encapsulates a bearer token presented as an Authorization header.
 type BearerToken struct {
-	token                        string
-	expiry                       time.Time
-	alwaysAuthenticateIfNoExpiry bool
+	Token                        string
+	Expiry                       time.Time
+	AlwaysAuthenticateIfNoExpiry bool
 }
 
 // shouldRenew returns whether this token needs to be renewed.
@@ -81,21 +81,21 @@ type BearerToken struct {
 //     was created.
 //   - No expiry time is available, and alwaysAuthenticateIfNoExpiry is true.
 func (bt *BearerToken) shouldRenew() bool {
-	if bt == nil || bt.token == "" {
+	if bt == nil || bt.Token == "" {
 		return true
 	}
-	if bt.expiry.IsZero() {
-		if bt.alwaysAuthenticateIfNoExpiry {
+	if bt.Expiry.IsZero() {
+		if bt.AlwaysAuthenticateIfNoExpiry {
 			return true
 		}
-	} else if bt.expiry.Before(timeNow()) {
+	} else if bt.Expiry.Before(timeNow()) {
 		return true
 	}
 	return false
 }
 
 func (bt *BearerToken) addHeader(req *http.Request) {
-	req.Header.Set(authorizationHeader, fmt.Sprintf("Bearer %s", bt.token))
+	req.Header.Set(authorizationHeader, fmt.Sprintf("Bearer %s", bt.Token))
 }
 
 // CredentialExchanger is used by bearerTokenAuthenticator to exchange
@@ -203,13 +203,13 @@ func (tr *tokenResponse) UnmarshalJSON(data []byte) error {
 
 func (tr *tokenResponse) toBearerToken(defaultExpiry time.Duration, alwaysAuthenticateIfNoExpiry bool) *BearerToken {
 	bt := &BearerToken{
-		token:                        tr.Token,
-		alwaysAuthenticateIfNoExpiry: alwaysAuthenticateIfNoExpiry,
+		Token:                        tr.Token,
+		AlwaysAuthenticateIfNoExpiry: alwaysAuthenticateIfNoExpiry,
 	}
 	if tr.ExpiresInSecs > 0 {
-		bt.expiry = timeNow().Add(time.Duration(tr.ExpiresInSecs) * time.Second)
+		bt.Expiry = timeNow().Add(time.Duration(tr.ExpiresInSecs) * time.Second)
 	} else if defaultExpiry > 0 {
-		bt.expiry = timeNow().Add(defaultExpiry)
+		bt.Expiry = timeNow().Add(defaultExpiry)
 	}
 	return bt
 }
