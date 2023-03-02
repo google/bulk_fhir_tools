@@ -85,8 +85,8 @@ func (c *Counter) Record(ctx context.Context, val int64, tagValues ...string) er
 
 // Close is not necessary or supported for opencensus Counters. This method is
 // implemented to satisfy the interface in metrics.go.
-func (c *Counter) Close() (map[string]int64, bool) {
-	return nil, false
+func (c *Counter) Close() map[string]int64 {
+	return nil
 }
 
 // Latency wraps an OpenCensus Float64 measure.
@@ -144,6 +144,6 @@ func (l *Latency) Record(ctx context.Context, val float64, tagValues ...string) 
 
 // Close is not necessary or supported for opencensus Latency. This method is
 // implemented to satisfy the interface in metrics.go.
-func (l *Latency) Close() (map[string][]int, bool) {
-	return nil, false
+func (l *Latency) Close() map[string][]int {
+	return nil
 }

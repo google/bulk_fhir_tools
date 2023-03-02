@@ -89,10 +89,10 @@ func (c *Counter) Record(_ context.Context, val int64, tagValues ...string) erro
 // Close processes any remaining queued increments and returns the results for
 // this counter. This should be called only after all Increments to this counter
 // have been called or sent already.
-func (c *Counter) Close() (map[string]int64, bool) {
+func (c *Counter) Close() map[string]int64 {
 	close(c.incrementChan)
 	c.wg.Wait()
-	return c.count, true
+	return c.count
 }
 
 func (c *Counter) countWorker() {
@@ -178,10 +178,10 @@ func (l *Latency) Record(ctx context.Context, val float64, tagValues ...string) 
 // Close processes any remaining queued increments and returns the final results
 // for this latency. This should be called only after all Increments to this
 // latency have been called or sent already.
-func (l *Latency) Close() (map[string][]int, bool) {
+func (l *Latency) Close() map[string][]int {
 	close(l.incrementChan)
 	l.wg.Wait()
-	return l.dist, true
+	return l.dist
 }
 
 func (l *Latency) latencyWorker() {
