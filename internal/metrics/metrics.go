@@ -81,7 +81,29 @@ func InitAndExportGCP(projectID string) error {
 // implementation was used. If the local implementation was used, the metric
 // results will be logged.
 func CloseAll() error {
-	counterRes, latencyRes, err := CloseAllWithResult()
+	for _, c := range counterRegistry {
+		if err := c.initialize(); err != nil {
+			return err
+		}
+		c.counterImp.Close()
+	}
+
+	for _, l := range latencyRegistry {
+		if err := l.initialize(); err != nil {
+			return err
+		}
+		l.latencyImp.Close()
+	}
+
+	if implementation == localImp {
+		// No close needed.
+	} else if implementation == gcpImp {
+		closeGCP()
+	} else {
+		return errors.New("in metrics.Close, implementation is set to an unknown value, this should never happen")
+	}
+
+	counterRes, latencyRes, err := GetResults()
 	if err != nil {
 		return err
 	}
@@ -96,37 +118,32 @@ func CloseAll() error {
 	return nil
 }
 
-// CloseAllWithResult is for testing. Prefer CloseAll() in production code.
-func CloseAllWithResult() ([]CounterResult, []LatencyResult, error) {
-	counterRes := []CounterResult{}
+// GetResults returns the results from all metrics. This should only be called in tests.
+func GetResults() (map[string]CounterResult, map[string]LatencyResult, error) {
 	for _, c := range counterRegistry {
 		if err := c.initialize(); err != nil {
 			return nil, nil, err
 		}
-		if count := c.counterImp.Close(); count != nil {
-			res := CounterResult{Count: count, Name: c.name, Description: c.description, Unit: c.unit, TagKeys: c.tagKeys}
-			counterRes = append(counterRes, res)
-		}
 	}
 
-	latencyRes := []LatencyResult{}
 	for _, l := range latencyRegistry {
 		if err := l.initialize(); err != nil {
 			return nil, nil, err
 		}
-		if dist := l.latencyImp.Close(); dist != nil {
-			res := LatencyResult{Dist: dist, Name: l.name, Description: l.description, Unit: l.unit, Buckets: l.buckets, TagKeys: l.tagKeys}
-			latencyRes = append(latencyRes, res)
-		}
 	}
 
-	if implementation == localImp {
-		// No close needed.
-	} else if implementation == gcpImp {
-		closeGCP()
-	} else {
-		return nil, nil, errors.New("in metrics.Close, implementation is set to an unknown value, this should never happen")
+	counterRes := make(map[string]CounterResult)
+	for _, c := range counterRegistry {
+		res := CounterResult{Count: c.counterImp.MaybeGetResult(), Name: c.name, Description: c.description, Unit: c.unit, TagKeys: c.tagKeys}
+		counterRes[c.name] = res
 	}
+
+	latencyRes := make(map[string]LatencyResult)
+	for _, l := range latencyRegistry {
+		res := LatencyResult{Dist: l.latencyImp.MaybeGetResult(), Name: l.name, Description: l.description, Unit: l.unit, Buckets: l.buckets, TagKeys: l.tagKeys}
+		latencyRes[l.name] = res
+	}
+
 	return counterRes, latencyRes, nil
 }
 
@@ -150,12 +167,14 @@ type counterInterface interface {
 	// Counters should not store any PHI.
 	Record(ctx context.Context, val int64, tagValues ...string) error
 
-	// Close closes the counter and returns the result of the counter. The results
-	// map a concatenation of the tagValues to count for those tagValues. If no
-	// tags are used then the result will map the name to the count. In some
-	// implementations calling close may not be necessary, in which case the map
-	// is nil.
-	Close() map[string]int64
+	// MaybeGetResult returns the result of the counter. The results map a concatenation
+	// of the tagValues to count for those tagValues. If no tags are used then the
+	// result will map the name to the count. In some implementations calling
+	// MaybeGetResult is not supported, in which case the map is nil.
+	MaybeGetResult() map[string]int64
+
+	// Close the counter.
+	Close()
 }
 type latencyInterface interface {
 	// Init should be called once before the Record method is called on this
@@ -171,13 +190,16 @@ type latencyInterface interface {
 	// Metrics should not store any PHI.
 	Record(ctx context.Context, val float64, tagValues ...string) error
 
-	// Close closes the latency and returns the results. The results map a
-	// concatenation of the tagValues to distribution for those tagValues. If no
-	// tags are used then the results will map the name to the distribution. The
-	// distribution is defined by the Buckets. For example,
+	// MaybeGetResult returns the results of the latency. The results map a concatenation
+	// of the tagValues to distribution for those tagValues. If no tags are used
+	// then the results will map the name to the distribution. The distribution is
+	// defined by the Buckets. For example,
 	// Buckets: [0, 3, 5] will create a distribution with 4 buckets where the last
 	// bucket is anything > 5. Dist: <0, >=0 <3, >=3 <5, >=5. In some
-	// implementations calling close may not be necessary, in which case the map
+	// implementations calling MayGetResult is not supported, in which case the map
 	// is nil.
-	Close() map[string][]int
+	MaybeGetResult() map[string][]int
+
+	// Close the latency.
+	Close()
 }

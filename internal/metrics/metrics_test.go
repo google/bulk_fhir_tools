@@ -45,30 +45,30 @@ func TestMetrics(t *testing.T) {
 	_ = NewCounter("CounterCloseWithNoRecord", "Counter Description", "1", "FHIRResource")
 	_ = NewLatency("LatencyCloseWithNoRecord", "Latency Description", "ms", []float64{0, 3, 5}, "FHIRResource")
 
-	wantCount := []CounterResult{
-		{
-			Count:       map[string]int64{"OBSERVATION": 2, "ENCOUNTER": 3},
-			Name:        "CounterTags",
-			Description: "Counter Description",
-			Unit:        "1",
-			TagKeys:     []string{"FHIRResource"},
-		},
-		{
-			Count:       map[string]int64{"CounterNoTags": 4},
-			Name:        "CounterNoTags",
-			Description: "Counter Description",
-			Unit:        "1",
-		},
-		{
+	wantCount := map[string]CounterResult{
+		"CounterCloseWithNoRecord": {
 			Count:       map[string]int64{},
 			Name:        "CounterCloseWithNoRecord",
 			Description: "Counter Description",
 			Unit:        "1",
 			TagKeys:     []string{"FHIRResource"},
 		},
+		"CounterNoTags": {
+			Count:       map[string]int64{"CounterNoTags": 4},
+			Name:        "CounterNoTags",
+			Description: "Counter Description",
+			Unit:        "1",
+		},
+		"CounterTags": {
+			Count:       map[string]int64{"ENCOUNTER": 3, "OBSERVATION": 2},
+			Name:        "CounterTags",
+			Description: "Counter Description",
+			Unit:        "1",
+			TagKeys:     []string{"FHIRResource"},
+		},
 	}
-	wantLatency := []LatencyResult{
-		{
+	wantLatency := map[string]LatencyResult{
+		"LatencyTags": {
 			Dist:        map[string][]int{"OBSERVATION": []int{0, 2, 0, 0}, "ENCOUNTER": []int{0, 0, 1, 0}},
 			Name:        "LatencyTags",
 			Description: "Latency Description",
@@ -76,14 +76,14 @@ func TestMetrics(t *testing.T) {
 			Buckets:     []float64{0, 3, 5},
 			TagKeys:     []string{"FHIRResource"},
 		},
-		{
+		"LatencyNoTags": {
 			Dist:        map[string][]int{"LatencyNoTags": []int{0, 1, 1, 0}},
 			Name:        "LatencyNoTags",
 			Description: "Latency Description",
 			Unit:        "ms",
 			Buckets:     []float64{0, 3, 5},
 		},
-		{
+		"LatencyCloseWithNoRecord": {
 			Dist:        map[string][]int{},
 			Name:        "LatencyCloseWithNoRecord",
 			Description: "Latency Description",
@@ -93,17 +93,21 @@ func TestMetrics(t *testing.T) {
 		},
 	}
 
-	gotCount, gotLatency, err := CloseAllWithResult()
-	if err != nil {
-		t.Fatalf("closeWithResult failed; err = %s", err)
+	if err := CloseAll(); err != nil {
+		t.Fatalf("CloseAll failed; err = %s", err)
 	}
+	gotCount, gotLatency, err := GetResults()
+	if err != nil {
+		t.Fatalf("GetResults failed; err = %s", err)
+	}
+
 	sortOpt := cmpopts.SortSlices(func(a, b CounterResult) bool { return a.Name < b.Name })
 	if diff := cmp.Diff(wantCount, gotCount, sortOpt); diff != "" {
-		t.Errorf("closeWithResult() return unexpected count (-want +got): \n%s", diff)
+		t.Errorf("getResults() return unexpected count (-want +got): \n%s", diff)
 	}
 	sortOpt = cmpopts.SortSlices(func(a, b LatencyResult) bool { return a.Name < b.Name })
 	if diff := cmp.Diff(wantLatency, gotLatency, sortOpt); diff != "" {
-		t.Errorf("closeWithResult() return unexpected latency (-want +got): \n%s", diff)
+		t.Errorf("getResults() return unexpected latency (-want +got): \n%s", diff)
 	}
 }
 

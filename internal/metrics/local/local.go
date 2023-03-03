@@ -86,13 +86,23 @@ func (c *Counter) Record(_ context.Context, val int64, tagValues ...string) erro
 	return nil
 }
 
-// Close processes any remaining queued increments and returns the results for
-// this counter. This should be called only after all Increments to this counter
-// have been called or sent already.
-func (c *Counter) Close() map[string]int64 {
+// MaybeGetResult returns a copy of the results for this counter.
+func (c *Counter) MaybeGetResult() map[string]int64 {
+	c.wg.Wait()
+	c.countMu.Lock()
+	copy := make(map[string]int64)
+	for k, v := range c.count {
+		copy[k] = v
+	}
+	c.countMu.Unlock()
+	return copy
+}
+
+// Close processes any remaining queued increments. This should be called only
+// after all Increments to this counter have been called or sent already.
+func (c *Counter) Close() {
 	close(c.incrementChan)
 	c.wg.Wait()
-	return c.count
 }
 
 func (c *Counter) countWorker() {
@@ -175,13 +185,24 @@ func (l *Latency) Record(ctx context.Context, val float64, tagValues ...string) 
 	return nil
 }
 
-// Close processes any remaining queued increments and returns the final results
-// for this latency. This should be called only after all Increments to this
-// latency have been called or sent already.
-func (l *Latency) Close() map[string][]int {
+// MaybeGetResult returns a copy of the results of the latency.
+func (l *Latency) MaybeGetResult() map[string][]int {
+	l.wg.Wait()
+	l.countMu.Lock()
+	cop := make(map[string][]int)
+	for k, v := range l.dist {
+		cop[k] = make([]int, len(v))
+		copy(cop[k], v)
+	}
+	l.countMu.Unlock()
+	return cop
+}
+
+// Close processes any remaining queued increments. This should be called only
+// after all Increments to this latency have been called or sent already.
+func (l *Latency) Close() {
 	close(l.incrementChan)
 	l.wg.Wait()
-	return l.dist
 }
 
 func (l *Latency) latencyWorker() {

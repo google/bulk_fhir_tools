@@ -35,7 +35,8 @@ func TestCounterWithTags(t *testing.T) {
 	if err := c.Record(context.Background(), 1, "OBSERVATION", "STU3"); err != nil {
 		t.Errorf("counter.Record(%q, %q) %v", "OBSERVATION", "STU3", err)
 	}
-	got := c.Close()
+	c.Close()
+	got := c.MaybeGetResult()
 	want := map[string]int64{"OBSERVATION-R4": 2, "OBSERVATION-STU3": 1}
 
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -51,7 +52,8 @@ func TestCounterWithoutTags(t *testing.T) {
 	if err := cNoTags.Record(context.Background(), 3); err != nil {
 		t.Errorf("counter.Record() %v", err)
 	}
-	got := cNoTags.Close()
+	cNoTags.Close()
+	got := cNoTags.MaybeGetResult()
 	want := map[string]int64{"fhir-resource-counter": 3}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("CloseAndGetResults() returned unexpected diff (-want +got):\n%s", diff)
@@ -84,7 +86,8 @@ func TestLatencyWithTags(t *testing.T) {
 	if err := l.Record(context.Background(), float64(12), "OBSERVATION", "STU3"); err != nil {
 		t.Errorf("latency.Record(%q, %q) %v", "OBSERVATION", "STU3", err)
 	}
-	got := l.Close()
+	l.Close()
+	got := l.MaybeGetResult()
 	want := map[string][]int{"OBSERVATION-R4": []int{1, 0, 1, 0}, "OBSERVATION-STU3": []int{0, 0, 0, 1}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("CloseAndGetResults() returned unexpected diff (-want +got):\n%s", diff)
@@ -99,7 +102,8 @@ func TestLatencyWithoutTags(t *testing.T) {
 	if err := lNoBuckets.Record(context.Background(), 2.99); err != nil {
 		t.Errorf("latency.Record() %v", err)
 	}
-	got := lNoBuckets.Close()
+	lNoBuckets.Close()
+	got := lNoBuckets.MaybeGetResult()
 	want := map[string][]int{"fhir-resource-latency": []int{0, 1, 0, 0}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("CloseAndGetResults() returned unexpected diff (-want +got):\n%s", diff)
@@ -117,7 +121,8 @@ func TestLatencyWithoutBuckets(t *testing.T) {
 	if err := lNoTags.Record(context.Background(), 44.4); err != nil {
 		t.Errorf("latency.Record() %v", err)
 	}
-	got := lNoTags.Close()
+	lNoTags.Close()
+	got := lNoTags.MaybeGetResult()
 	want := map[string][]int{"fhir-resource-latency": []int{2}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("CloseAndGetResults() returned unexpected diff (-want +got):\n%s", diff)
