@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/fake"
 	"github.com/google/medical_claims_tools/internal/metrics/local"
 	"github.com/google/medical_claims_tools/internal/metrics/opencensus"
 )
@@ -28,7 +29,7 @@ import (
 type Counter struct {
 	counterImp counterInterface
 
-	once sync.Once
+	once *sync.Once
 
 	name        string
 	description string
@@ -49,7 +50,7 @@ func NewCounter(name, description, unit string, tagKeys ...string) *Counter {
 		log.Warning("NewCounter is being called multiple times with the same name. Name should be unique between counters.")
 		return c
 	}
-	counter := Counter{name: name, description: description, unit: unit, tagKeys: tagKeys}
+	counter := Counter{name: name, description: description, unit: unit, tagKeys: tagKeys, once: &sync.Once{}}
 	counterRegistry[name] = &counter
 	return &counter
 }
@@ -77,6 +78,8 @@ func (c *Counter) initialize() error {
 			c.counterImp = &local.Counter{}
 		} else if implementation == gcpImp {
 			c.counterImp = &opencensus.Counter{}
+		} else if implementation == fakeImp {
+			c.counterImp = &fake.Counter{}
 		} else {
 			err = errors.New("in metrics.NewCounter, implementation is set to an unknown value, this should never happen")
 		}

@@ -37,6 +37,7 @@ var implementation = localImp
 const (
 	localImp = iota
 	gcpImp   = iota
+	fakeImp  = iota
 )
 
 // globalMu synchronizes the reading and writing to counterRegistry, latencyRegistry and globalRecordCalled globals.
@@ -74,6 +75,37 @@ func InitAndExportGCP(projectID string) error {
 		return err
 	}
 	return sd.StartMetricsExporter()
+}
+
+// InitNoOp initializes all metrics to have no-op behavior on all calls. Since
+// many metrics may be globals or package-specific globals, this makes it easier
+// to run t.Parallel tests where metric results are not checked or
+// inconsequential.
+func InitNoOp() {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	implementation = fakeImp
+}
+
+// ResetAll resets the count/dist of all created metrics. It should only
+// be called in tests. Metric results cannot be asserted in tests run in
+// t.Parallel(). If using t.Parallel() consider InitNoOp instead.
+func ResetAll() {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	globalRecordCalled = false
+
+	// Go through the registry and return all metrics to the state they were in
+	// after the call to NewCounter/NewLatency.
+	for _, c := range counterRegistry {
+		// Reset the once.
+		c.once = &sync.Once{}
+		c.counterImp = nil
+	}
+	for _, l := range latencyRegistry {
+		l.once = &sync.Once{}
+		l.latencyImp = nil
+	}
 }
 
 // CloseAll should be called only after all metrics have been recorded. It will

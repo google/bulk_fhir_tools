@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/fake"
 	"github.com/google/medical_claims_tools/internal/metrics/local"
 	"github.com/google/medical_claims_tools/internal/metrics/opencensus"
 )
@@ -28,7 +29,7 @@ import (
 type Latency struct {
 	latencyImp latencyInterface
 
-	once sync.Once
+	once *sync.Once
 
 	name        string
 	description string
@@ -52,7 +53,7 @@ func NewLatency(name, description, unit string, buckets []float64, tagKeys ...st
 		log.Warning("NewLatency is being called multiple times with the same name. Name should be unique between latencies.")
 		return l
 	}
-	latency := Latency{name: name, description: description, unit: unit, buckets: buckets, tagKeys: tagKeys}
+	latency := Latency{name: name, description: description, unit: unit, buckets: buckets, tagKeys: tagKeys, once: &sync.Once{}}
 	latencyRegistry[name] = &latency
 	return &latency
 }
@@ -80,7 +81,10 @@ func (l *Latency) initialize() error {
 			l.latencyImp = &local.Latency{}
 		} else if implementation == gcpImp {
 			l.latencyImp = &opencensus.Latency{}
+		} else if implementation == fakeImp {
+			l.latencyImp = &fake.Latency{}
 		} else {
+
 			err = errors.New("in metrics.NewCounter, implementation is set to an unknown value, this should never happen")
 		}
 		l.latencyImp.Init(l.name, l.description, l.unit, l.buckets, l.tagKeys...)
