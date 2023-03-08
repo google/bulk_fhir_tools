@@ -128,23 +128,20 @@ func CloseAll() error {
 	}
 
 	if implementation == localImp {
-		// No close needed.
+		counterRes, latencyRes, err := GetResults()
+		if err != nil {
+			return err
+		}
+		for _, res := range counterRes {
+			log.Info(res.String())
+		}
+		for _, res := range latencyRes {
+			log.Info(res.String())
+		}
 	} else if implementation == gcpImp {
 		closeGCP()
 	} else {
 		return errors.New("in metrics.Close, implementation is set to an unknown value, this should never happen")
-	}
-
-	counterRes, latencyRes, err := GetResults()
-	if err != nil {
-		return err
-	}
-
-	for _, res := range counterRes {
-		log.Info(res.String())
-	}
-	for _, res := range latencyRes {
-		log.Info(res.String())
 	}
 
 	return nil
