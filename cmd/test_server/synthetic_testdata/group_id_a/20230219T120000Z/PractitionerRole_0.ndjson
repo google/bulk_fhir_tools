@@ -1,0 +1,1 @@
+{"resourceType":"PractitionerRole","id":"1","active":true,"practitioner":{"reference":"Practitioner/1"},"organization":{"display":"HospitalOrganizationName"},"specialty":[{"coding":[{"system":"http://snomed.info/sct","code":"394579002","display":"Cardiology"}],"text":"Cardiology"}]}

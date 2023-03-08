@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -95,23 +96,26 @@ func TestTimestampConversion(t *testing.T) {
 	}
 }
 
-func TestTestServer_ValidExport(t *testing.T) {
+func TestTestServer_ValidPatientExport(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name             string
 		dataDir          string
+		numberResultURLs int
 		expectedFileData []byte
 	}{
 		{
 			name:             "With custom data",
 			dataDir:          t.TempDir(),
+			numberResultURLs: 1,
 			expectedFileData: []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`),
 		},
 		{
 			name:             "With default data",
 			dataDir:          "",
-			expectedFileData: defaultFileData,
+			numberResultURLs: 8,
+			expectedFileData: []byte(`{"resourceType":"Patient","id":"1","extension":[{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-race","extension":[{"url":"text","valueString":"Unknown"}]},{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity","extension":[{"url":"text","valueString":"Unknown"}]}],"name":[{"family":"OldFamilyName","given":["OldGiveName"]}],"gender":"male","communication":[{"language":{"text":"English"}}],"managingOrganization":{"display":"EXAMPLE_ORGANIZATION"}}`),
 		},
 	}
 	for _, tc := range cases {
@@ -124,7 +128,7 @@ func TestTestServer_ValidExport(t *testing.T) {
 
 			clientID := "clientID"
 			clientSecret := "clientSecret"
-			groupName := "all"
+			groupName := "group_id_a"
 			dirName := "20180917T175311Z"
 
 			if tc.dataDir != "" {
@@ -162,8 +166,8 @@ func TestTestServer_ValidExport(t *testing.T) {
 				}
 			}
 
-			if len(result.Status.ResultURLs) != 1 {
-				t.Fatalf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), 1)
+			if len(result.Status.ResultURLs) != tc.numberResultURLs {
+				t.Fatalf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), tc.numberResultURLs)
 			}
 			if len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]) != 1 {
 				t.Fatalf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
@@ -214,6 +218,14 @@ func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret strin
 		validClientSecret: validClientSecret,
 		jobDelay:          2 * time.Second,
 		retryAfter:        1,
+	}
+	if dataDir == "" {
+		var err error
+		if testServer.dataFS, err = fs.Sub(testdata, "synthetic_testdata"); err != nil {
+			t.Fatalf("fs.Sub returned an error: %v", err)
+		}
+	} else {
+		testServer.dataFS = os.DirFS(dataDir)
 	}
 	h := testServer.buildHandler()
 	server := httptest.NewServer(h)

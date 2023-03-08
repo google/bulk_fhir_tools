@@ -35,16 +35,22 @@
 // to be an error in setting up the test. If you wish to test the case of there
 // being no changes to the data, or no data at all, you should add a timestamp
 // folder which is empty.
+
+// If --data_dir flag is not provided the synthetic dataset in the
+// synthetic_testdata folder will be used. The FHIR Patient resource changes
+// names from OldFamilyName, OldGivenName to NewFamilyName, NewGivenName between
+// timestamps.
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -62,6 +68,9 @@ var (
 	clientID     = flag.String("client_id", "", "the value of client ID this server should accept.")
 	clientSecret = flag.String("client_secret", "", "the value of client secret this server should accept.")
 )
+
+//go:embed synthetic_testdata/*
+var testdata embed.FS
 
 // token represents the only valid token this server recognizes in authenticated requests.
 // TODO(b/266077987): add support for token TTLs, more advanced auth behavior.
@@ -93,6 +102,7 @@ type exportJob struct {
 
 type server struct {
 	dataDir           string
+	dataFS            fs.FS
 	baseURL           string
 	jobs              map[string]*exportJob
 	jobDelay          time.Duration
@@ -114,9 +124,6 @@ const errorFormat = `{
   }
  ]
 }`
-
-var defaultResourceID = "Patient"
-var defaultFileData = []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 
 const filepathTimestampFormat = "20060102T150405Z"
 
@@ -178,18 +185,7 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 	groupID := ps.ByName("groupID")
 	requestID := uuid.New().String()
 
-	if s.dataDir == "" {
-		// No dataDir configured, use default job that returns some default pre-stored data.
-		job.response.Output = append(job.response.Output, outputItem{
-			ResourceType: defaultResourceID,
-			URL:          fmt.Sprintf("%s/requests/%s/%s/%d", s.baseURL, requestID, defaultResourceID, 1),
-		})
-		job.response.TransactionTime = fhir.ToFHIRInstant(time.Now())
-		s.acceptJob(requestID, job, w)
-		return
-	}
-
-	dateEntries, err := os.ReadDir(filepath.Join(s.dataDir, groupID))
+	dateEntries, err := fs.ReadDir(s.dataFS, groupID)
 	if err != nil {
 		log.Print(err)
 		if os.IsNotExist(err) {
@@ -229,23 +225,24 @@ func (s *server) startExport(w http.ResponseWriter, req *http.Request, ps httpro
 	}
 	job.response.TransactionTime = transactionTime
 
-	dataDir := filepath.Join(s.dataDir, groupID, timestampDir)
-	dataEntries, err := os.ReadDir(dataDir)
+	dataDirPath := path.Join(groupID, timestampDir)
+	dataEntries, err := fs.ReadDir(s.dataFS, dataDirPath)
+
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if len(dataEntries) == 0 {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("No data files found in %s", dataDir))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("No data files found in %s", dataDirPath))
 		return
 	}
 	for _, de := range dataEntries {
 		resourceType, index, ok := strings.Cut(strings.Split(de.Name(), ".")[0], "_")
 		if !ok {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Data file %s in %s has wrong format; want {resource_type}_{index}.ndjson", de.Name(), dataDir))
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Data file %s in %s has wrong format; want {resource_type}_{index}.ndjson", de.Name(), dataDirPath))
 			return
 		}
-		job.filepaths[fileKey{strings.ToLower(resourceType), index}] = filepath.Join(dataDir, de.Name())
+		job.filepaths[fileKey{strings.ToLower(resourceType), index}] = path.Join(groupID, timestampDir, de.Name())
 		job.response.Output = append(job.response.Output, outputItem{
 			ResourceType: resourceType,
 			URL:          fmt.Sprintf("%s/requests/%s/%s/%s", s.baseURL, requestID, resourceType, index),
@@ -290,30 +287,20 @@ func (s *server) serveResource(w http.ResponseWriter, req *http.Request, ps http
 		writeError(w, http.StatusNotFound, fmt.Sprintf("Request ID %s not found", ps.ByName("requestID")))
 		return
 	}
-
-	if s.dataDir == "" && len(job.filepaths) == 0 {
-		// No dataDir is configured, so we return the default file information.
-		w.Header().Set("Content-Type", "application/fhir+ndjson")
-		if _, err := w.Write(defaultFileData); err != nil {
-			log.Print(err)
-		}
-		return
-	}
-
 	key := fileKey{strings.ToLower(ps.ByName("resourceType")), ps.ByName("index")}
 	filepath, ok := job.filepaths[key]
 	if !ok {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("File %s/%s not found", ps.ByName("resourceType"), ps.ByName("index")))
 		return
 	}
-	fh, err := os.Open(filepath)
+
+	resource, err := fs.ReadFile(s.dataFS, filepath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer fh.Close()
 	w.Header().Set("Content-Type", "application/fhir+ndjson")
-	if _, err := io.Copy(w, fh); err != nil {
+	if _, err := w.Write(resource); err != nil {
 		log.Print(err)
 	}
 }
@@ -357,6 +344,15 @@ func main() {
 		validClientID:     *clientID,
 		validClientSecret: *clientSecret,
 	}
+	if *dataDir == "" {
+		var err error
+		if srv.dataFS, err = fs.Sub(testdata, "synthetic_testdata"); err != nil {
+			log.Fatalf("fs.Sub returned an error: %v", err)
+		}
+	} else {
+		srv.dataFS = os.DirFS(*dataDir)
+	}
+
 	handler := srv.buildHandler()
 
 	http.Handle("/", handler)
