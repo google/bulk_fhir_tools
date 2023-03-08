@@ -24,10 +24,11 @@ import (
 	"io"
 	"time"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhir/processing"
+	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
@@ -50,6 +51,8 @@ const (
 	// parsing a FHIR NDJSON token.
 	initialBufferSize = 5 * 1024
 )
+
+var processURLTime *metrics.Latency = metrics.NewLatency("process-url-time", "Bulk FHIR Server's provide a list of URLs to download FHIR ndjson from. ProcessURLTime records the time to download and process data from a particular Job URL.", "min", []float64{0, 1, 3, 7, 15, 30, 45, 60, 75, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480})
 
 // Fetcher is a utility for running a bulk FHIR fetch end-to-end.
 type Fetcher struct {
@@ -169,7 +172,11 @@ func (f *Fetcher) processData(ctx context.Context, jobStatus bulkfhir.JobStatus)
 
 	for resourceType, urls := range jobStatus.ResultURLs {
 		for _, url := range urls {
+			start := time.Now()
 			if err := f.processURL(ctx, resourceType, url); err != nil {
+				return err
+			}
+			if err := processURLTime.Record(ctx, float64(time.Since(start)/time.Minute)); err != nil {
 				return err
 			}
 		}

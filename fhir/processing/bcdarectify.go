@@ -20,7 +20,10 @@ import (
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	dpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
+	"github.com/google/medical_claims_tools/internal/metrics"
 )
+
+var fhirRectifyCounter *metrics.Counter = metrics.NewCounter("fhir-rectify-counter", "Count of FHIR Resources that do not meet the base R4 FHIR expectations and need to be rectified. The counter is tagged by the FHIR Resource type ex) OBSERVATION and type of rectification ex) MISSING_PROVIDER_REFERENCE.", "1", "FHIRResourceType", "RectificationType")
 
 type bcdaRectifyProcessor struct {
 	BaseProcessor
@@ -68,6 +71,9 @@ func (brp *bcdaRectifyProcessor) rectifyExplanationOfBenefit(ctx context.Context
 		e.Provider = &dpb.Reference{
 			Extension: []*dpb.Extension{getUnmappedExtension()},
 		}
+		if err := fhirRectifyCounter.Record(ctx, 1, cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT.String(), "MISSING_PROVIDER_REFERENCE"); err != nil {
+			return err
+		}
 	}
 
 	// Focal is also unset by BCDA, so we mark it with an extension too if not
@@ -75,6 +81,9 @@ func (brp *bcdaRectifyProcessor) rectifyExplanationOfBenefit(ctx context.Context
 	for _, i := range e.GetInsurance() {
 		if i.Focal == nil {
 			i.Focal = &dpb.Boolean{Extension: []*dpb.Extension{getUnmappedExtension()}}
+			if err := fhirRectifyCounter.Record(ctx, 1, cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT.String(), "FOCAL_UNSET"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -83,6 +92,9 @@ func (brp *bcdaRectifyProcessor) rectifyExplanationOfBenefit(ctx context.Context
 	for _, i := range e.GetItem() {
 		if i.ProductOrService == nil {
 			i.ProductOrService = &dpb.CodeableConcept{Extension: []*dpb.Extension{getUnmappedExtension()}}
+			if err := fhirRectifyCounter.Record(ctx, 1, cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT.String(), "PRODUCT_OR_SERVICE_UNSET"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -102,7 +114,7 @@ func (brp *bcdaRectifyProcessor) rectifyCoverage(ctx context.Context, resource R
 	// appear to be placeholders (they reference other Coverages instead of other
 	// Contracts, which leads to a validation failure). We look for a specific
 	// reference that we expect to be a placeholder, and if it exists, replace it
-	// with a similar placeholder (excpet that it's a Contract/ reference instead
+	// with a similar placeholder (except that it's a Contract/ reference instead
 	// of a Coverage/ reference). More details at b/175394994#comment24.
 	for _, contract := range cov.GetContract() {
 		if contract.GetCoverageId().GetValue() == "part-a-contract1" {
@@ -110,6 +122,9 @@ func (brp *bcdaRectifyProcessor) rectifyCoverage(ctx context.Context, resource R
 			// replace the Coverage reference with a Contract reference with the same
 			// value.
 			contract.Reference = &dpb.Reference_ContractId{&dpb.ReferenceId{Value: "part-a-contract1"}}
+			if err := fhirRectifyCounter.Record(ctx, 1, cpb.ResourceTypeCode_COVERAGE.String(), "PLACEHOLDER_COVERAGE_REFERENCE"); err != nil {
+				return err
+			}
 		}
 	}
 

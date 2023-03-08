@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/fhir/go/fhirversion"
 	"github.com/google/fhir/go/jsonformat"
+	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	rpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
@@ -88,6 +89,9 @@ func (rw *resourceWrapper) JSON() ([]byte, error) {
 
 // Verify resourceWrapper satisfies the ResourceWrapper interface.
 var _ ResourceWrapper = &resourceWrapper{}
+
+var operationOutcomeCounter *metrics.Counter = metrics.NewCounter("operation-outcome-counter", "Count of the severity and error code of the operation outcomes returned from the bulk fhir server.", "1", "Severity", "Code")
+var fhirResourceCounter *metrics.Counter = metrics.NewCounter("fhir-resource-counter", "Count of FHIR Resources processed by Bulk FHIR Fetch run. The counter is tagged by the FHIR Resource type ex) OBSERVATION.", "1", "FHIRResourceType")
 
 // OutputFunction is the signature of both Processor.Process and Sink.Write.
 type OutputFunction func(ctx context.Context, resource ResourceWrapper) error
@@ -218,13 +222,29 @@ func (p *Pipeline) writeToSinks(ctx context.Context, resource ResourceWrapper) e
 //
 // It is not safe to call this function from multiple Goroutines.
 func (p *Pipeline) Process(ctx context.Context, resourceType cpb.ResourceTypeCode_Value, sourceURL string, json []byte) error {
-	return p.pipelineFunc(ctx, &resourceWrapper{
+	rw := &resourceWrapper{
 		unmarshaller: p.unmarshaller,
 		marshaller:   p.marshaller,
 		resourceType: resourceType,
 		sourceURL:    sourceURL,
 		json:         json,
-	})
+	}
+	if err := fhirResourceCounter.Record(ctx, 1, resourceType.String()); err != nil {
+		return err
+	}
+	if resourceType == cpb.ResourceTypeCode_OPERATION_OUTCOME {
+		op, err := rw.Proto()
+		if err != nil {
+			return err
+		}
+		for _, issue := range op.GetOperationOutcome().GetIssue() {
+			if err := operationOutcomeCounter.Record(ctx, 1, issue.GetSeverity().GetValue().String(), issue.GetCode().GetValue().String()); err != nil {
+				return err
+			}
+		}
+
+	}
+	return p.pipelineFunc(ctx, rw)
 }
 
 // Finalize calls finalize on all of the underlying Processors and Sinks in the

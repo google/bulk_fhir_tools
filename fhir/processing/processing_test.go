@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhir/processing"
+	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
@@ -34,6 +35,7 @@ func (tp *testProcessor) Process(ctx context.Context, resource processing.Resour
 }
 
 func TestTeeFHIRSink(t *testing.T) {
+	metrics.ResetAll()
 	ts1 := &processing.TestSink{}
 	ts2 := &processing.TestSink{}
 	ctx := context.Background()
@@ -69,5 +71,65 @@ func TestTeeFHIRSink(t *testing.T) {
 		if !ts.FinalizeCalled {
 			t.Errorf("Finalize not called on TestSink %d", i)
 		}
+	}
+	gotCount, _, err := metrics.GetResults()
+	wantCount := map[string]int64{"ACCOUNT": 1}
+	if err != nil {
+		t.Errorf("GetResults failed; err = %s", err)
+	}
+	if diff := cmp.Diff(wantCount, gotCount["fhir-resource-counter"].Count); diff != "" {
+		t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+	}
+}
+
+func TestOperationOutcomeCounter(t *testing.T) {
+	metrics.ResetAll()
+	ctx := context.Background()
+	p, err := processing.NewPipeline([]processing.Processor{&testProcessor{}}, []processing.Sink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := []byte(`{"resourceType": "OperationOutcome", "id": "123", "issue":[{"severity": "warning", "code": "forbidden"}, {"severity": "error", "code": "not-found"}, {"severity": "error", "code": "not-found"}]}`)
+	if err := p.Process(ctx, cpb.ResourceTypeCode_OPERATION_OUTCOME, "http://source", data); err != nil {
+		t.Fatalf("p.Process() returned unexpected error: %v", err)
+	}
+	if err := p.Finalize(ctx); err != nil {
+		t.Fatalf("p.Finalize() returned unexpected error: %v", err)
+	}
+
+	gotCount, _, err := metrics.GetResults()
+	wantCount := map[string]int64{"WARNING-FORBIDDEN": 1, "ERROR-NOT_FOUND": 2}
+	if err != nil {
+		t.Errorf("GetResults failed; err = %s", err)
+	}
+	if diff := cmp.Diff(wantCount, gotCount["operation-outcome-counter"].Count); diff != "" {
+		t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+	}
+}
+
+func TestMalformedOperationOutcomeCounter(t *testing.T) {
+	metrics.ResetAll()
+	ctx := context.Background()
+	p, err := processing.NewPipeline([]processing.Processor{&testProcessor{}}, []processing.Sink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := []byte(`{"resourceType": "OperationOutcome", "id": "123", "issue":[{"severity": "warning"}, {"diagnostics": "diagnostic string"}]}`)
+	if err := p.Process(ctx, cpb.ResourceTypeCode_OPERATION_OUTCOME, "http://source", data); err != nil {
+		t.Fatalf("p.Process() returned unexpected error: %v", err)
+	}
+	if err := p.Finalize(ctx); err != nil {
+		t.Fatalf("p.Finalize() returned unexpected error: %v", err)
+	}
+
+	gotCount, _, err := metrics.GetResults()
+	wantCount := map[string]int64{"WARNING-INVALID_UNINITIALIZED": 1, "INVALID_UNINITIALIZED-INVALID_UNINITIALIZED": 1}
+	if err != nil {
+		t.Errorf("GetResults failed; err = %s", err)
+	}
+	if diff := cmp.Diff(wantCount, gotCount["operation-outcome-counter"].Count); diff != "" {
+		t.Errorf("GetResults() returned unexpected count (-want +got): \n%s", diff)
 	}
 }

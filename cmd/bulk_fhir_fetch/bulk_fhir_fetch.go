@@ -32,6 +32,7 @@ import (
 	"github.com/google/medical_claims_tools/fhirstore"
 	"github.com/google/medical_claims_tools/gcs"
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics"
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
@@ -43,7 +44,7 @@ var (
 	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
-	enableGCPLogging            = flag.Bool("enable_gcp_logging", false, "If true, logs will be written to GCP instead of stdout. If true, fhirStoreGCPProject must be set to specify which GCP Project ID to write logs to.")
+	enableGCPLogging            = flag.Bool("enable_gcp_logging", false, "If true, logs and metrics will be written to GCP instead of stdout. If true, fhirStoreGCPProject must be set to specify which GCP Project ID to write logs to.")
 	enableFHIRStore             = flag.Bool("enable_fhir_store", false, "If true, this enables write to GCP FHIR store. If true, all other fhir_store_* flags and the rectify flag must be set.")
 	maxFHIRStoreUploadWorkers   = flag.Int("max_fhir_store_upload_workers", 10, "The max number of concurrent FHIR store upload workers.")
 	fhirStoreGCPProject         = flag.String("fhir_store_gcp_project", "", "The GCP project for the FHIR store to upload to.")
@@ -100,13 +101,24 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	}
 
 	if cfg.enableGCPLog {
-		log.InitGCP(ctx, cfg.fhirStoreGCPProject)
-		defer func() {
-			if err := log.Close(); err != nil {
-				stdlog.Printf("error closing the logger: %v", err)
-			}
-		}()
+		if err := log.InitGCP(ctx, cfg.fhirStoreGCPProject); err != nil {
+			return err
+		}
+		if err := metrics.InitAndExportGCP(cfg.fhirStoreGCPProject); err != nil {
+			return err
+		}
+	} else {
+		metrics.InitLocal()
 	}
+
+	defer func() {
+		if err := metrics.CloseAll(); err != nil {
+			log.Errorf("error closing the metrics: %v", err)
+		}
+		if err := log.Close(); err != nil {
+			stdlog.Printf("error closing the logger: %v", err)
+		}
+	}()
 
 	if cfg.outputPrefix != "" {
 		errStr := "outputPrefix is deprecated, please use outputDir instead"

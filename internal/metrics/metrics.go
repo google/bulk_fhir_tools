@@ -52,6 +52,11 @@ var errInitAfterRecord = errors.New("initAndExportGCP was called after a metric 
 
 var sd *stackdriver.Exporter
 
+// InitLocal is optional and does nothing, but does make it clearer to the code
+// reader that we are using the local implementation of metrics. The local
+// implementation is used by default and logs all metrics upon call to CloseAll.
+func InitLocal() {}
+
 // InitAndExportGCP starts exporting metrics to GCP on a 60 second interval. Metrics can
 // be created with NewCounter before calling InitAndExportGCP, but no callers should call
 // Record() on any metric until InitAndExportGCP is called.

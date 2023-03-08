@@ -31,6 +31,7 @@ import (
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	"github.com/google/medical_claims_tools/gcs"
+	"github.com/google/medical_claims_tools/internal/metrics"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	"flag"
@@ -180,6 +181,7 @@ func TestMainWrapper(t *testing.T) {
 		// instead of having to spell them out explicitly.
 	}
 	t.Parallel()
+	metrics.InitNoOp()
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -440,6 +442,7 @@ func TestMainWrapper(t *testing.T) {
 
 func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	t.Parallel()
+	metrics.InitNoOp()
 	// Declare test data:
 	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 	exportEndpoint := "/api/v2/Group/all/$export"
@@ -527,6 +530,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	// This tests that if JobStatus returns unauthorized, mainWrapper attempts to
 	// re-authorize and try again.
 	t.Parallel()
+	metrics.InitNoOp()
 	// Declare test data:
 	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
 	exportEndpoint := "/api/v2/Group/all/$export"
@@ -635,6 +639,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 		},
 	}
 	t.Parallel()
+	metrics.InitNoOp()
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -735,6 +740,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 	}
 
 	t.Parallel()
+	metrics.InitNoOp()
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -827,6 +833,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 
 func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	t.Parallel()
+	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 	file1Data := []byte(patient1)
 	exportEndpoint := "/api/v2/Group/all/$export"
@@ -968,6 +975,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 }
 
 func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
+	metrics.InitNoOp()
 	cfg := mainWrapperConfig{
 		clientID:                      "id",
 		clientSecret:                  "secret",
@@ -982,6 +990,7 @@ func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
 
 func TestMainWrapper_GeneralizedImport(t *testing.T) {
 	t.Parallel()
+	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 	file1Data := []byte(patient1)
 
@@ -1083,6 +1092,7 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 
 func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	t.Parallel()
+	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 	file1Data := []byte(patient1)
 	exportEndpoint := "/api/v2/Group/all/$export"
@@ -1192,6 +1202,7 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 		},
 	}
 	t.Parallel()
+	metrics.InitNoOp()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
