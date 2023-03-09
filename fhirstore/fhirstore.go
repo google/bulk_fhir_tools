@@ -26,7 +26,11 @@ import (
 
 	healthcare "google.golang.org/api/healthcare/v1"
 	"google.golang.org/api/option"
+	"github.com/google/medical_claims_tools/internal/metrics"
 )
+
+var fhirStoreUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-upload-counter", "Count of uploads to FHIR Store by FHIR Resource Type and HTTP Status.", "1", "FHIRResourceType", "HTTPStatus")
+var fhirStoreBatchUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-counter", "Count of FHIR Bundles uploaded to FHIR Store by HTTP Status.", "1", "HTTPStatus")
 
 // DefaultHealthcareEndpoint represents the default cloud healthcare API
 // endpoint. This should be passed to UploadResource, unless in a test
@@ -103,6 +107,8 @@ func (c *Client) UploadResource(fhirJSON []byte) error {
 	}
 	defer resp.Body.Close()
 
+	fhirStoreUploadCounter.Record(context.Background(), 1, resourceType, http.StatusText(resp.StatusCode))
+
 	if resp.StatusCode > 299 {
 		respBytes, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -140,6 +146,8 @@ func (c *Client) UploadBundle(fhirBundleJSON []byte) error {
 		return fmt.Errorf("error executing Healthcare API call (ExecuteBundle): %v", err)
 	}
 	defer resp.Body.Close()
+
+	fhirStoreBatchUploadCounter.Record(context.Background(), 1, http.StatusText(resp.StatusCode))
 
 	if resp.StatusCode > 299 {
 		respBytes, err := ioutil.ReadAll(resp.Body)

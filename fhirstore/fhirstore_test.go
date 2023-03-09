@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/fhirstore"
+	"github.com/google/medical_claims_tools/internal/metrics"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -41,6 +42,7 @@ func TestUploadResource(t *testing.T) {
 	fhirStoreID := "fhirstoreID"
 
 	t.Run("ValidResponse", func(t *testing.T) {
+		metrics.ResetAll()
 		uploadResourceWithParams := fmt.Sprintf("UploadResource(%s, %s, %s, %s, %s)", inputJSON, projectID, location, datasetID, fhirStoreID)
 		serverURL := testhelpers.FHIRStoreServer(
 			t,
@@ -63,9 +65,19 @@ func TestUploadResource(t *testing.T) {
 		if err := c.UploadResource(inputJSON); err != nil {
 			t.Errorf(uploadResourceWithParams+" encountered an unexpected error: %v", err)
 		}
+
+		gotCount, _, err := metrics.GetResults()
+		if err != nil {
+			t.Errorf("GetResults failed; err = %s", err)
+		}
+		wantCount := map[string]int64{"Patient-OK": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-upload-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+		}
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
+		metrics.ResetAll()
 		uploadResourceWithParams := fmt.Sprintf("UploadResource(%s, %s, %s, %s, %s)", inputJSON, projectID, location, datasetID, fhirStoreID)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(500)
@@ -84,6 +96,15 @@ func TestUploadResource(t *testing.T) {
 		}
 		if err := c.UploadResource(inputJSON); !errors.Is(err, fhirstore.ErrorAPIServer) {
 			t.Errorf(uploadResourceWithParams+" unexpected error. got: %v, want: %v", err, fhirstore.ErrorAPIServer)
+		}
+
+		gotCount, _, err := metrics.GetResults()
+		if err != nil {
+			t.Errorf("GetResults failed; err = %s", err)
+		}
+		wantCount := map[string]int64{"Patient-Internal Server Error": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-upload-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
 		}
 	})
 }
@@ -156,6 +177,7 @@ func TestUploadBundle(t *testing.T) {
 	uploadBundleWithParams := fmt.Sprintf("UploadBatch(%s, %s, %s, %s, %s)", inputBundle, projectID, location, datasetID, fhirStoreID)
 
 	t.Run("ValidResponse", func(t *testing.T) {
+		metrics.ResetAll()
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			bundlePath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir?", projectID, location, datasetID, fhirStoreID)
 			if req.URL.String() != bundlePath {
@@ -188,9 +210,19 @@ func TestUploadBundle(t *testing.T) {
 		if err := c.UploadBundle(inputBundle); err != nil {
 			t.Errorf(uploadBundleWithParams+" encountered an unexpected error: %v", err)
 		}
+
+		gotCount, _, err := metrics.GetResults()
+		if err != nil {
+			t.Errorf("GetResults failed; err = %s", err)
+		}
+		wantCount := map[string]int64{"OK": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+		}
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
+		metrics.ResetAll()
 		errBody := []byte("error")
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(500)
@@ -215,6 +247,15 @@ func TestUploadBundle(t *testing.T) {
 		}
 
 		checkInternalServerBundleError(t, uploadErr, errBody)
+
+		gotCount, _, err := metrics.GetResults()
+		if err != nil {
+			t.Errorf("GetResults failed; err = %s", err)
+		}
+		wantCount := map[string]int64{"Internal Server Error": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+		}
 	})
 }
 

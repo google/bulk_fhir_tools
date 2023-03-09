@@ -25,16 +25,18 @@ import (
 	"os"
 	"path/filepath"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
 	"cloud.google.com/go/storage"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/gcs"
-	"github.com/google/medical_claims_tools/internal/counter"
+	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	dpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 	drpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/document_reference_go_proto"
 )
+
+var documentRetrievalCounter *metrics.Counter = metrics.NewCounter("document-retrieval-counter", "Count by HTTP Status when retrieving DocumentReference resources.", "1", "HTTPStatus")
 
 type fileWriter interface {
 	writeFile(ctx context.Context, filename string, data []byte) (string, error)
@@ -86,10 +88,9 @@ func (lfw *localFileWriter) writeFile(ctx context.Context, filename string, data
 
 type documentsProcessor struct {
 	BaseProcessor
-	authenticator         bulkfhir.Authenticator
-	httpClient            *http.Client
-	fileWriter            fileWriter
-	retrievalErrorCounter *counter.Counter
+	authenticator bulkfhir.Authenticator
+	httpClient    *http.Client
+	fileWriter    fileWriter
 }
 
 var _ Processor = &documentsProcessor{}
@@ -124,10 +125,9 @@ func NewDocumentsProcessor(ctx context.Context, cfg *DocumentsProcessorConfig) (
 		}
 	}
 	return &documentsProcessor{
-		authenticator:         cfg.Authenticator,
-		httpClient:            cfg.HTTPClient,
-		fileWriter:            fw,
-		retrievalErrorCounter: counter.New(),
+		authenticator: cfg.Authenticator,
+		httpClient:    cfg.HTTPClient,
+		fileWriter:    fw,
 	}, nil
 }
 
@@ -176,9 +176,10 @@ func (dp *documentsProcessor) downloadFileAndUpdateResource(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	documentRetrievalCounter.Record(ctx, 1, http.StatusText(resp.StatusCode))
 	if resp.StatusCode != http.StatusOK {
 		log.Errorf("request for %s returned unexpected status %s", url, resp.Status)
-		dp.retrievalErrorCounter.Increment()
 		return nil
 	}
 	var buf bytes.Buffer
@@ -206,8 +207,5 @@ func (dp *documentsProcessor) downloadFileAndUpdateResource(ctx context.Context,
 }
 
 func (dp *documentsProcessor) Finalize(ctx context.Context) error {
-	if retrievalErrors := dp.retrievalErrorCounter.CloseAndGetCount(); retrievalErrors > 0 {
-		log.Errorf("Document processor failed to retrieve %d documents. Check logs for details", retrievalErrors)
-	}
 	return nil
 }

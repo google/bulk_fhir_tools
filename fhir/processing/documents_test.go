@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir/processing"
+	"github.com/google/medical_claims_tools/internal/metrics"
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -59,33 +60,39 @@ func TestDocumentsProcessor(t *testing.T) {
 		input        string
 		wantError    bool
 		wantJSON     string
+		wantCount    map[string]int64
 	}{
 		{
 			description:  "patient resource ignored",
 			resourceType: cpb.ResourceTypeCode_PATIENT,
 			input:        `{"resourceType": "Patient", "id": "123"}`,
 			wantJSON:     `{"resourceType": "Patient", "id": "123"}`,
+			wantCount:    map[string]int64{},
 		},
 		{
 			description:  "With documents",
 			resourceType: cpb.ResourceTypeCode_DOCUMENT_REFERENCE,
 			input:        `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "application/pdf", "url": "` + server.URL + `/document.pdf"}}, {"attachment": {"contentType": "text/xml", "url": "` + server.URL + `/document.xml"}}]}`,
 			wantJSON:     `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "application/pdf", "url": "FILEPATH0"}}, {"attachment": {"contentType": "text/xml", "url": "FILEPATH1"}}]}`,
+			wantCount:    map[string]int64{"OK": 2},
 		},
 		{
 			description:  "Non-existent document",
 			resourceType: cpb.ResourceTypeCode_DOCUMENT_REFERENCE,
 			input:        `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "application/pdf", "url": "` + server.URL + `/nonexistent.pdf"}}]}`,
 			wantJSON:     `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "application/pdf", "url": "` + server.URL + `/nonexistent.pdf"}}]}`,
+			wantCount:    map[string]int64{"Not Found": 1},
 		},
 		{
 			description:  "Inline data unchanged",
 			resourceType: cpb.ResourceTypeCode_DOCUMENT_REFERENCE,
 			input:        `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "text/plain", "data": "SGVsbG8gV29ybGQh"}}]}`,
 			wantJSON:     `{"resourceType": "DocumentReference", "id": "documentid", "content": [{"attachment": {"contentType": "text/plain", "data": "SGVsbG8gV29ybGQh"}}]}`,
+			wantCount:    map[string]int64{},
 		},
 	} {
 		t.Run(tc.description, func(t *testing.T) {
+			metrics.ResetAll()
 			tempdir, err := os.MkdirTemp("", "")
 			if err != nil {
 				t.Fatal(err)
@@ -147,6 +154,14 @@ func TestDocumentsProcessor(t *testing.T) {
 			normalizedGotJSON := testhelpers.NormalizeJSON(t, gotJSON)
 			if !cmp.Equal(normalizedGotJSON, normalizedWantJSON) {
 				t.Errorf("pipeline.Process(..., %s) produced unexpected output. got: %s, want: %s", tc.input, normalizedGotJSON, normalizedWantJSON)
+			}
+
+			gotCount, _, err := metrics.GetResults()
+			if err != nil {
+				t.Errorf("GetResults failed; err = %s", err)
+			}
+			if diff := cmp.Diff(tc.wantCount, gotCount["document-retrieval-counter"].Count); diff != "" {
+				t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
 			}
 		})
 	}
