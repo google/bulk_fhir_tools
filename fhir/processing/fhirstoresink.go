@@ -22,6 +22,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/medical_claims_tools/bulkfhir"
@@ -52,7 +53,7 @@ type directFHIRStoreSink struct {
 	maxWorkers int
 	wg         *sync.WaitGroup
 
-	uploadErrorOccurred  bool
+	uploadErrorOccurred  atomic.Bool
 	noFailOnUploadErrors bool
 	errorFileOutputPath  string
 
@@ -97,7 +98,7 @@ func (dfss *directFHIRStoreSink) Finalize(ctx context.Context) error {
 			return err
 		}
 	}
-	if dfss.uploadErrorOccurred {
+	if dfss.uploadErrorOccurred.Load() {
 		if dfss.noFailOnUploadErrors {
 			log.Warningf("%v", ErrUploadFailures)
 		} else {
@@ -119,7 +120,7 @@ func (dfss *directFHIRStoreSink) uploadWorker(ctx context.Context) {
 			// TODO(b/211490544): consider adding an auto-retrying mechanism in the
 			// future.
 			log.Errorf("error uploading resource: %v", err)
-			dfss.uploadErrorOccurred = true
+			dfss.uploadErrorOccurred.Store(true)
 			dfss.writeError(fhirJSON, err)
 		}
 		dfss.wg.Done()
@@ -158,7 +159,7 @@ func (dfss *directFHIRStoreSink) uploadBatchWorker(ctx context.Context) {
 		if err := c.UploadBatch(fhirBatch); err != nil {
 
 			log.Errorf("error uploading batch: %v", err)
-			dfss.uploadErrorOccurred = true
+			dfss.uploadErrorOccurred.Store(true)
 			// TODO(b/225916126): in the future, try to unpack the error and only
 			// write out the resources within the bundle that failed. For now, we
 			// write out all resources in the bundle to be safe.
