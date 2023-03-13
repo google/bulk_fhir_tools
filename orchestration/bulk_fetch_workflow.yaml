@@ -122,7 +122,7 @@ main:
             allocationPolicy:
               # TODO(b/256011525): Replace with a service account dedicated to Bulk FHIR fetch.
               serviceAccount:
-                email : "795775069012-compute@developer.gserviceaccount.com"
+                email : ${args.service_account}
         result: createAndRunBatchJobResponse
     - getJob:
         call: http.get

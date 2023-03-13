@@ -34,7 +34,8 @@ WORKFLOW_NAME="bulk-fetch-custom"
 SCHEDULER_NAME="bulk-fetch-custom-scheduler"
 SCHEDULE_CRON='0 22 * * 1-5'
 # This is the service account email to be used to generate an OAuth token sent
-# by the scheduler to the batch jobs service when triggering batch jobs. The
+# by the scheduler to the batch jobs service when triggering batch jobs. It
+# is also used as the service account the batch job runs as. The
 # caller of this script must have the iam.serviceAccounts.actAs (see
 # https://cloud.google.com/iam/docs/service-accounts#user-role) for this
 # service account.
@@ -42,7 +43,7 @@ SCHEDULE_CRON='0 22 * * 1-5'
 # like $PROJECT_NUMERIC_ID-compute@developer.gserviceaccount.com but you may
 # wish to create a dedicated service account for this job as well.
 # Please update this value to the service account you would like to use.
-SCHEDULER_SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
+SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
 
 # FHIR Ingestion Flags
 FHIR_SERVER_BASE_URL="https://sandbox.bcda.cms.gov/api/v2"
@@ -86,7 +87,7 @@ gcloud scheduler jobs create http ${SCHEDULER_NAME} \
     --schedule="${SCHEDULE_CRON}" \
     --uri="https://workflowexecutions.googleapis.com/v1/projects/${PROJECT}/locations/${LOCATION}/workflows/${WORKFLOW_NAME}/executions" \
     --time-zone="America/Los_Angeles" \
-    --oauth-service-account-email=${SCHEDULER_SERVICE_ACCT} \
+    --oauth-service-account-email=${SERVICE_ACCT} \
     --location=${LOCATION} \
     --message-body="{\"argument\": \"{
   \\\"fhir_server_base_url\\\": \\\"${FHIR_SERVER_BASE_URL}\\\",
@@ -96,7 +97,8 @@ gcloud scheduler jobs create http ${SCHEDULER_NAME} \
   \\\"fhir_dataset_id\\\": \\\"${FHIR_DATASET_ID}\\\",
   \\\"fhir_store_id\\\": \\\"${FHIR_STORE_ID}\\\",
   \\\"client_id_gcp_secret_id\\\": \\\"${CLIENT_ID_GCP_SECRET_ID}\\\",
-  \\\"client_secret_gcp_secret_id\\\": \\\"${CLIENT_SECRET_GCP_SECRET_ID}\\\"
+  \\\"client_secret_gcp_secret_id\\\": \\\"${CLIENT_SECRET_GCP_SECRET_ID}\\\",
+  \\\"service_account\\\": \\\"${SERVICE_ACCT}\\\"
 }\"}"
 
 echo "Done."
