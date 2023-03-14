@@ -107,6 +107,7 @@ const (
 
 // Endpoint locations
 const (
+	exportAllPatientsEndpoint    = "/Patient/$export"
 	bulkDataExportEndpointFmtStr = "/Group/%s/$export"
 )
 
@@ -133,16 +134,31 @@ func (c *Client) doHTTP(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// StartBulkDataExport starts a job via the bulk fhir API to begin exporting the
+// StartBulkDataExport starts a job via the bulk FHIR API to begin exporting the
 // requested resource types since the provided timestamp for the provided group,
 // and returns the URL to query the job status (from the response Content-
-// Location header). The variable bulkfhir.ExportGroupAll can be provided
-// for the group parameter if you wish to retrieve all FHIR resources.
+// Location header). StartBulkDataExportAll can be used if you wish to export
+// all FHIR resources without a group ID.
 func (c *Client) StartBulkDataExport(types []cpb.ResourceTypeCode_Value, since time.Time, groupID string) (jobStatusURL string, err error) {
 	u, err := url.Parse(c.baseURL + fmt.Sprintf(bulkDataExportEndpointFmtStr, groupID))
 	if err != nil {
 		return "", err
 	}
+	return c.startBulkDataExportInternal(u, types, since)
+}
+
+// StartBulkDataExportAll starts a job via the bulk FHIR to begin exporting the
+// requested resource types since the provided timestamp for all patients and
+// returns the URL to query the job status.
+func (c *Client) StartBulkDataExportAll(types []cpb.ResourceTypeCode_Value, since time.Time) (jobStatusURL string, err error) {
+	u, err := url.Parse(c.baseURL + exportAllPatientsEndpoint)
+	if err != nil {
+		return "", err
+	}
+	return c.startBulkDataExportInternal(u, types, since)
+}
+
+func (c *Client) startBulkDataExportInternal(u *url.URL, types []cpb.ResourceTypeCode_Value, since time.Time) (jobStatusURL string, err error) {
 	qParams := u.Query()
 
 	if !since.IsZero() {

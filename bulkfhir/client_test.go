@@ -38,11 +38,37 @@ func (testAuthenticator) AddAuthenticationToRequest(hc *http.Client, req *http.R
 	return nil
 }
 
-func TestClient_StartBulkDataExport(t *testing.T) {
+func TestClient_BulkDataExport(t *testing.T) {
+	cases := []struct {
+		name             string
+		useGroupEndpoint bool
+	}{
+		{
+			name:             "WithGroupEndpoint (StartBulkDataExport)",
+			useGroupEndpoint: true,
+		},
+		{
+			name:             "WithPatientEndpoint (StartBulkDataExportAll)",
+			useGroupEndpoint: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			startBulkDataExportCases(t, tc.useGroupEndpoint)
+		})
+	}
+}
+
+func startBulkDataExportCases(t *testing.T, useGroupEndpoint bool) {
 	t.Run("unauthorized", func(t *testing.T) {
 		server := newUnauthorizedServer(t)
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
+		var err error
+		if useGroupEndpoint {
+			_, err = cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
+		} else {
+			_, err = cl.StartBulkDataExportAll(nil, time.Time{})
+		}
 		if err != ErrorUnauthorized {
 			t.Errorf("StartBulkDataExport unexpected error returned: got: %v, want: %v", err, ErrorUnauthorized)
 		}
@@ -57,7 +83,10 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		since := time.Date(2013, 12, 9, 11, 0, 0, 123000000, time.UTC)
 		group := "mygroup"
 
-		expectedPath := "/Group/mygroup/$export"
+		expectedPath := "/Patient/$export"
+		if useGroupEndpoint {
+			expectedPath = "/Group/mygroup/$export"
+		}
 		expectedAcceptValue := "application/fhir+json"
 		expectedSince := "2013-12-09T11:00:00.123+00:00"
 		expectedTypes := "Patient,ExplanationOfBenefit,Coverage"
@@ -103,7 +132,14 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		defer server.Close()
 
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		jobURL, err := cl.StartBulkDataExport(resourceTypes, since, group)
+		var err error
+		var jobURL string
+		if useGroupEndpoint {
+			jobURL, err = cl.StartBulkDataExport(resourceTypes, since, group)
+		} else {
+			jobURL, err = cl.StartBulkDataExportAll(resourceTypes, since)
+		}
+
 		if err != nil {
 			t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", resourceTypes, since, err)
 		}
@@ -164,7 +200,13 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 				defer server.Close()
 
 				cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-				jobURL, err := cl.StartBulkDataExport(tc.resourceTypes, tc.since, ExportGroupAll)
+				var jobURL string
+				var err error
+				if useGroupEndpoint {
+					jobURL, err = cl.StartBulkDataExport(tc.resourceTypes, tc.since, ExportGroupAll)
+				} else {
+					jobURL, err = cl.StartBulkDataExportAll(tc.resourceTypes, tc.since)
+				}
 				if err != nil {
 					t.Errorf("StartBulkDataExport(%v, %v) returned unexpected error: %v", tc.resourceTypes, tc.since, err)
 				}
@@ -182,7 +224,12 @@ func TestClient_StartBulkDataExport(t *testing.T) {
 		defer server.Close()
 
 		cl := Client{authenticator: testAuthenticator{}, baseURL: server.URL, httpClient: &http.Client{}}
-		_, err := cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
+		var err error
+		if useGroupEndpoint {
+			_, err = cl.StartBulkDataExport(nil, time.Time{}, ExportGroupAll)
+		} else {
+			_, err = cl.StartBulkDataExportAll(nil, time.Time{})
+		}
 		if !errors.Is(err, ErrorGreaterThanOneContentLocation) {
 			t.Errorf("StartBulkDataExport(nil, %v) unexpected underlying error got: %v want: %v", time.Time{}, err, ErrorGreaterThanOneContentLocation)
 		}
