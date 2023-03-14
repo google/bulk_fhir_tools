@@ -139,6 +139,7 @@ func (f *Fetcher) maybeStartJob(ctx context.Context) error {
 	if f.ExportGroup != "" {
 		f.JobURL, err = f.Client.StartBulkDataExport(f.ResourceTypes, since, f.ExportGroup)
 	} else {
+		log.Warning("No export Group ID set, so defaulting to the Patient endpoint to export all resources.")
 		f.JobURL, err = f.Client.StartBulkDataExportAll(f.ResourceTypes, since)
 	}
 	if err != nil {
