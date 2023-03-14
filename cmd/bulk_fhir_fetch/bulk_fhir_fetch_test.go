@@ -205,7 +205,7 @@ func TestMainWrapper(t *testing.T) {
 				`"insurance":[{"coverage":{"reference":"coverage"},"focal":true}],` +
 				`"created":"2021-07-30T10:57:34+01:00"}`)
 
-			exportEndpoint := "/api/v2/Group/all/$export"
+			exportEndpoint := "/api/v2/Patient/$export"
 			expectedJobURLSuffix := "/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -445,7 +445,7 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	metrics.InitNoOp()
 	// Declare test data:
 	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-	exportEndpoint := "/api/v2/Group/all/$export"
+	exportEndpoint := "/api/v2/Patient/$export"
 	jobsEndpoint := "/api/v2/jobs/1234"
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -533,7 +533,7 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 	metrics.InitNoOp()
 	// Declare test data:
 	file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-	exportEndpoint := "/api/v2/Group/all/$export"
+	exportEndpoint := "/api/v2/Patient/$export"
 	jobsEndpoint := "/api/v2/jobs/1234"
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -646,7 +646,7 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 			t.Parallel()
 			// Declare test data:
 			file1Data := []byte(`{"resourceType":"Patient","id":"PatientID"}`)
-			exportEndpoint := "/api/v2/Group/all/$export"
+			exportEndpoint := "/api/v2/Patient/$export"
 			jobURLSuffix := "/api/v2/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -750,7 +750,7 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			patient2 := `{"resourceType":"Patient","id":"PatientID2"}`
 			patient3 := `{"resourceType":"Patient","id":"PatientID3"}`
 			file1Data := []byte(patient1 + "\n" + patient2 + "\n" + patient3)
-			exportEndpoint := "/api/v2/Group/all/$export"
+			exportEndpoint := "/api/v2/Patient/$export"
 			jobStatusURLSuffix := "/api/v2/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -836,7 +836,7 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 	file1Data := []byte(patient1)
-	exportEndpoint := "/api/v2/Group/all/$export"
+	exportEndpoint := "/api/v2/Patient/$export"
 	jobStatusURLSuffix := "/api/v2/jobs/1234"
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -996,7 +996,7 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 
 	baseURLSuffix := "/api/v20"
 
-	exportEndpoint := "/api/v20/Group/all/$export"
+	exportEndpoint := "/api/v20/Patient/$export"
 	jobStatusURLSuffix := "/api/v20/jobs/1234"
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -1095,7 +1095,7 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 	file1Data := []byte(patient1)
-	exportEndpoint := "/api/v2/Group/all/$export"
+	exportEndpoint := "/api/v2/Patient/$export"
 	jobStatusURLSuffix := "/api/v2/jobs/1234"
 	serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -1207,7 +1207,7 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
 			file1Data := []byte(patient1)
-			exportEndpoint := "/api/v2/Group/all/$export"
+			exportEndpoint := "/api/v2/Patient/$export"
 			jobStatusURLSuffix := "/api/v2/jobs/1234"
 			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
 
@@ -1265,6 +1265,112 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 			}
 			if !bytes.Contains(obj.Data, file1Data) {
 				t.Errorf("gcs server unexpected data in prefix_Patient_0 file: got: %s, want: %s", obj.Data, file1Data)
+			}
+		})
+	}
+}
+
+func TestMainWrapper_GroupID(t *testing.T) {
+	cases := []struct {
+		name    string
+		groupID string
+	}{
+		{
+			name:    "NonEmptyGroupID",
+			groupID: "mygroup",
+		},
+		{
+			name:    "EmptyGroupID",
+			groupID: "",
+		},
+	}
+	t.Parallel()
+	metrics.InitNoOp()
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			metrics.InitNoOp()
+			patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
+			file1Data := []byte(patient1)
+
+			baseURLSuffix := "/api/v20"
+			exportEndpoint := "/api/v20/Patient/$export"
+			if tc.groupID != "" {
+				exportEndpoint = fmt.Sprintf("/api/v20/Group/%s/$export", tc.groupID)
+			}
+			jobStatusURLSuffix := "/api/v20/jobs/1234"
+			serverTransactionTime := "2020-12-09T11:00:00.123+00:00"
+
+			scopes := []string{"a", "b", "c"}
+
+			// Setup bulk fhir test servers:
+			jobStatusURL := ""
+
+			// A separate resource server is needed during testing, so that we can send
+			// the jobsEndpoint response in the bulkFHIRServer that includes a URL for the
+			// bulkFHIRResourceServer in it.
+			bulkFHIRResourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Write(file1Data)
+			}))
+			defer bulkFHIRResourceServer.Close()
+
+			bulkFHIRServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/auth/token":
+					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
+				case exportEndpoint:
+					w.Header()["Content-Location"] = []string{jobStatusURL}
+					w.WriteHeader(http.StatusAccepted)
+				case jobStatusURLSuffix:
+					w.Write([]byte(fmt.Sprintf("{\"output\": [{\"type\": \"Patient\", \"url\": \"%s/data/10.ndjson\"}], \"transactionTime\": \"%s\"}", bulkFHIRResourceServer.URL, serverTransactionTime)))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer bulkFHIRServer.Close()
+			jobStatusURL = bulkFHIRServer.URL + jobStatusURLSuffix
+
+			bulkFHIRBaseURL := bulkFHIRServer.URL + baseURLSuffix
+			authURL := bulkFHIRServer.URL + "/auth/token"
+
+			outputDir := t.TempDir()
+
+			// Set mainWrapperConfig for this test case. In practice, values are
+			// populated in mainWrapperConfig from flags. Setting the config struct
+			// instead of the flags in tests enables parallelization with significant
+			// performance improvement. A separate test below tests that setting flags
+			// properly populates mainWrapperConfig.
+			cfg := mainWrapperConfig{
+				clientID:                 "id",
+				clientSecret:             "secret",
+				outputDir:                outputDir,
+				useGeneralizedBulkImport: true,
+				baseServerURL:            bulkFHIRBaseURL,
+				authURL:                  authURL,
+				fhirAuthScopes:           scopes,
+				rectify:                  true,
+				groupID:                  tc.groupID,
+			}
+
+			// Run mainWrapper:
+			if err := mainWrapper(cfg); err != nil {
+				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			}
+
+			// Check that files were also written to disk under outputDir
+			fullPath := path.Join(outputDir, "Patient_0.ndjson")
+			r, err := os.Open(fullPath)
+			if err != nil {
+				t.Errorf("unable to open file %s: %s", fullPath, err)
+			}
+			defer r.Close()
+			gotData, err := io.ReadAll(r)
+			if err != nil {
+				t.Errorf("error reading file %s: %v", fullPath, err)
+			}
+			if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
+				t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
 			}
 		})
 	}

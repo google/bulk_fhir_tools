@@ -68,7 +68,8 @@ type Fetcher struct {
 	// Resource types to request if no JobURL is specified. May be empty.
 	ResourceTypes []cpb.ResourceTypeCode_Value
 
-	// Group to export if no JobURL is specified.
+	// Group to export if no JobURL is specified. If empty, defaults to exporting
+	// data for all patients.
 	ExportGroup string
 
 	// The following parameters may all be omitted, and sane defaults will be used.
@@ -135,7 +136,11 @@ func (f *Fetcher) maybeStartJob(ctx context.Context) error {
 		// not allow using multiple %w verbs.
 		return fmt.Errorf("%v: %w", ErrInvalidTransactionTime, err)
 	}
-	f.JobURL, err = f.Client.StartBulkDataExport(f.ResourceTypes, since, f.ExportGroup)
+	if f.ExportGroup != "" {
+		f.JobURL, err = f.Client.StartBulkDataExport(f.ResourceTypes, since, f.ExportGroup)
+	} else {
+		f.JobURL, err = f.Client.StartBulkDataExportAll(f.ResourceTypes, since)
+	}
 	if err != nil {
 		return fmt.Errorf("unable to start Bulk FHIR export job: %w", err)
 	}
