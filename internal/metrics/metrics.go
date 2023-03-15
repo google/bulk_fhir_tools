@@ -49,6 +49,7 @@ var latencyRegistry map[string]*Latency = make(map[string]*Latency)
 // globalRecordCalled tracks whether we have called Record() on any created metric before calling Init.
 var globalRecordCalled = false
 var errInitAfterRecord = errors.New("initAndExportGCP was called after a metric called record")
+var errUnknownImplementation = errors.New("implementation is set to an unknown value, this should never happen")
 
 var sd *stackdriver.Exporter
 
@@ -132,7 +133,8 @@ func CloseAll() error {
 		l.latencyImp.Close()
 	}
 
-	if implementation == localImp {
+	switch implementation {
+	case localImp:
 		counterRes, latencyRes, err := GetResults()
 		if err != nil {
 			return err
@@ -143,10 +145,12 @@ func CloseAll() error {
 		for _, res := range latencyRes {
 			log.Info(res.String())
 		}
-	} else if implementation == gcpImp {
+	case gcpImp:
 		closeGCP()
-	} else {
-		return errors.New("in metrics.Close, implementation is set to an unknown value, this should never happen")
+	case fakeImp:
+		// No op.
+	default:
+		return errUnknownImplementation
 	}
 
 	return nil
@@ -183,6 +187,11 @@ func GetResults() (map[string]CounterResult, map[string]LatencyResult, error) {
 
 // closeGCP flushes the remaining metrics and stops exporting.
 func closeGCP() {
+	if sd == nil {
+		log.Warning("The stackdriver.Exporter is unexpectedly nil on Close. This should not happen outside tests.")
+		return
+	}
+
 	sd.Flush()
 	sd.StopMetricsExporter()
 }
