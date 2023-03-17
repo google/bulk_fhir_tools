@@ -24,10 +24,9 @@ data in BigQuery.
 
 ## Set up `bulk_fhir_fetch` cron
 
-Next, we will set up a recurring cron job to run the `bulk_fhir_fetch`
-program with a `since_file` so that it will periodically fetch new claims data
-for your ACO. The first time it will run, it will fetch all historical
-data.
+Next, we will set up a recurring cron job to run the `bulk_fhir_fetch` program
+with a `since_file` so that it will periodically fetch new FHIR data. The first
+time it will run, it will fetch all historical data.
 
 There are many ways to orchestrate periodic programs, so feel free to use the
 method of your preference. Here, we will provide an example of using`bulk_fhir_fetch`
@@ -38,27 +37,24 @@ FHIR store.
 
 
 1. Follow the [GCP VM Setup](gcp_vm_setup.md) for this codebase.
-2. Follow the Build instructions to either build the `bulk_fhir_fetch`
-  program from source, or download a pre-built version of the program from
-  GitHub.
+2. Follow the Build instructions to build the `bulk_fhir_fetch` program from source.
 3. Cron should be installed already, but activate it using
   `sudo systemctl enable cron`
 4. Edit the crontab configuration by typing `crontab -e`. Here you will specify
-how frequently you'd like bulk_fhir_fetch to run, and the bulk_fhir_fetch command to run.
+how frequently you'd like `bulk_fhir_fetch` to run, and the `bulk_fhir_fetch` command to run.
 
-For example, if you'd like BCDA fetch to run every day at 4AM and output data to
-local disk only (and only fetch new data on each run, making use of the `-
-since_file` flag), you can add a line like:
+For example, if you'd like `bulk_fhir_fetch` to run every day at 4AM and output
+data to local disk only (and only fetch new data on each run, making use of the
+`- since_file` flag), you can add a line like:
 
 ```
-0 4 * * * ./path/to/bulk_fhir_fetch -client_id=id -client_secret=secret -bcda_server_url="https://sandbox.bcda.cms.gov" -output_dir="/path/to/local/store" -use_v2=true -since_file="/path/to/since_file"
+0 4 * * * ./path/to/bulk_fhir_fetch -client_id=<YOUR_CLIENT_ID> -client_secret=<YOUR_CLIENT_SECRET> -enable_generalized_bulk_import=true -fhir_server_base_url=<FHIR_SERVER_URL> -fhir_auth_url=<FHIR_SERVER_AUTH_URL> -output_dir=<PATH_TO_LOCAL_STORE> -since_file=<PATH_TO_SINCE_FILE>
 ```
 
-[Read more here](https://en.wikipedia.org/wiki/Cron#Overview) to learn about cron configurations.
+[Read more here](https://en.wikipedia.org/wiki/Cron#Overview) to learn about
+cron configurations. Saving the crontab file and exiting it should be sufficient
+to install this new job and register it to be run at the next interval. Note
+that the whole command for the cron configuration must be on one line.
 
-To upload to FHIR store, pass the GCP flags as described in the [README](../README.md).
+To upload to FHIR store, pass the GCP flags as described in the [README](../README.md#bulk_fhir_fetch-configuration-examples).
 
-Saving the crontab file and exiting it should be sufficient to install this new
-job and register it to be run at the next interval.
-
-Note that the whole command for the cron configuration must be on one line.

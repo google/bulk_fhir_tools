@@ -44,8 +44,8 @@ var (
 	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
-	bcdaServerURL               = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "The BCDA server to communicate with. By default this is https://sandbox.bcda.cms.gov")
-	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "Indicates if the generalized (non-BCDA) bulk fhir flags should be used to configure the fetch. If true, fhir_server_base_url, fhir_auth_url, and fhir_auth_scopes must be set. This overrides any of the bcda-specific flags.")
+	bcdaServerURL               = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "[Deprecated: prefer enable_generalized_bulk_import flag] The BCDA server to communicate with. By default this is https://sandbox.bcda.cms.gov")
+	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "Indicates if the generalized (non-BCDA) bulk fhir flags should be used to configure the fetch. If true, fhir_server_base_url and fhir_auth_url must be set. This overrides any of the bcda-specific flags.")
 	baseServerURL               = flag.String("fhir_server_base_url", "", "The full bulk FHIR server base URL to communicate with. For example, https://sandbox.bcda.cms.gov/api/v2")
 	authURL                     = flag.String("fhir_auth_url", "", "The full authentication or \"token\" URL to use for authenticating with the FHIR server. For example, https://sandbox.bcda.cms.gov/auth/token")
 	fhirAuthScopes              = flag.String("fhir_auth_scopes", "", "A comma separated list of auth scopes that should be requested when getting an auth token.")
@@ -276,6 +276,10 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 func validateConfig(cfg mainWrapperConfig) error {
 	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
+	}
+
+	if cfg.useGeneralizedBulkImport && (cfg.baseServerURL == "" || cfg.authURL == "") {
+		return errors.New("both fhir_server_base_url and fhir_auth_url must be set when enable_generalized_bulk_import is true")
 	}
 
 	if cfg.enableFHIRStore && (cfg.fhirStoreGCPProject == "" ||
