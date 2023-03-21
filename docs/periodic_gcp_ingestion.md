@@ -1,6 +1,6 @@
 # Periodic GCP Ingestion
 
-This doc will detail a way to set up automatic periodic ingestion of claims data
+This doc will detail a way to set up automatic periodic ingestion of FHIR data
 using `bulk_fhir_fetch` into GCP's FHIR Store and BigQuery. Once the data is flowing
 into BigQuery automatically, dashboards and notebooks can be used to explore
 and analyze the data.

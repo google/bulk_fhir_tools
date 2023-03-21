@@ -30,8 +30,7 @@ to follow your organization's policies with respect to PHI.__
 * `bcda/`: [Deprecated: prefer the generalized bulkfhir package] A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
 * `analytics/`: A folder with some analytics notebooks and examples.
 * `fhirstore/`: A go helper package for uploading to FHIR store.
-* `fhir/`: A go package with some helpful utilities for working with FHIR claims
-  data.
+* `fhir/`: A go package with some helpful utilities for working with FHIR.
 
 ## Set up bulk_fhir_fetch on GCP
 
@@ -77,8 +76,8 @@ store, or other R4 FHIR servers). To do this, simply pass the following flag:
   -rectify=true
   ```
 
-* __Fetch all claims data _since_ some timestamp__. This is useful if, for example,
-you only wish to fetch new claims data since yesterday (or some other time).
+* __Fetch all FHIR _since_ some timestamp__. This is useful if, for example,
+you only wish to fetch new FHIR since yesterday (or some other time).
 Simply pass a [FHIR instant](https://www.hl7.org/fhir/datatypes.html#instant)
 timestamp to the `-since` flag.
 
@@ -90,14 +89,14 @@ timestamp to the `-since` flag.
   If you will be using fetch in this mode frequently, consider the since file
   option below which automates this behavior.
 
-* __Automatically fetch new claims since last successful run.__ The program
+* __Automatically fetch new FHIR since last successful run.__ The program
 provides a `-since_file` option, which the program uses to store and read BCDA
 timestamps from successful runs. When using this option, the fetch program will
 automatically read the latest timestamp from the since_file and use that to only
-fetch claims since that time. When completed successfully, it will write a new
-timestamp back out to that file, so that the next time fetch is run, only claims
+fetch FHIR since that time. When completed successfully, it will write a new
+timestamp back out to that file, so that the next time fetch is run, only FHIR
 since that time will be fetched. The first time the program is run with
-`-since_file` it will fetch all historical claims from BCDA and initialize the
+`-since_file` it will fetch all historical FHIR from BCDA and initialize the
 since_file with the first timestamp.
 
   ```sh
@@ -105,7 +104,7 @@ since_file with the first timestamp.
   ```
 Do not run concurrent instances of fetch that use the same since file.
 
-* __Upload claims to a GCP FHIR Store:__
+* __Upload FHIR to a GCP FHIR Store:__
 
   ```sh
   ./bulk_fhir_fetch \
