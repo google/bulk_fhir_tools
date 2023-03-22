@@ -30,95 +30,64 @@ func TestNewClient(t *testing.T) {
 	// This tests that the bcda package creates a bulkfhir.Client that hits the
 	// proper bcda style endpoint URLs only. Tests checking that bulkfhir.Client
 	// behaves correctly in general found in bulkfhir/client_test.go.
-	cases := []struct {
-		name      string
-		v         bcda.Version
-		wantError error
-	}{
-		{
-			name: "WithV1",
-			v:    bcda.V1,
-		},
-		{
-			name: "WithV2",
-			v:    bcda.V2,
-		},
-		{
-			name:      "WithInvalidVersion",
-			v:         bcda.Version(9999),
-			wantError: bcda.ErrorInvalidVersion,
-		},
+	wantAuthEndpoint := "/auth/token"
+	wantBulkDataExportEndpoint := "/api/v2/Group/all/$export"
+	wantJobStatusEndpointSuffix := "/api/v2/jobs/1"
+
+	var correctAuthCalled boolMutex
+	var correctBulkDataExportCalled boolMutex
+	var correctJobStatusCalled boolMutex
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.String() {
+		case wantAuthEndpoint:
+			correctAuthCalled.Lock()
+			correctAuthCalled.called = true
+			correctAuthCalled.Unlock()
+			w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
+		case wantBulkDataExportEndpoint:
+			correctBulkDataExportCalled.Lock()
+			correctBulkDataExportCalled.called = true
+			correctBulkDataExportCalled.Unlock()
+			w.Header()["Content-Location"] = []string{"some/info/"}
+			w.WriteHeader(http.StatusAccepted)
+		case wantJobStatusEndpointSuffix:
+			correctJobStatusCalled.Lock()
+			correctJobStatusCalled.called = true
+			correctJobStatusCalled.Unlock()
+			w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 20)}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected call received by bcda server at: %v", req.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	baseURL := server.URL
+	cl, err := bcda.NewClient(baseURL, "clientID", "clientSecret")
+	if err != nil {
+		t.Errorf("unexpected error from NewClient %v", err)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			wantAuthEndpoint := "/auth/token" // note auth is not prefixed with a version.
-			wantBulkDataExportEndpoint := "/api/v1/Group/all/$export"
-			wantJobStatusEndpointSuffix := "/api/v1/jobs/1"
-			if tc.v == bcda.V2 {
-				wantBulkDataExportEndpoint = "/api/v2/Group/all/$export"
-				wantJobStatusEndpointSuffix = "/api/v2/jobs/1"
-			}
+	_, err = cl.StartBulkDataExport(nil, time.Time{}, bulkfhir.ExportGroupAll)
+	if err != nil {
+		t.Errorf("got unexpected error from StartBulkDataExport: %v", err)
+	}
 
-			var correctAuthCalled boolMutex
-			var correctBulkDataExportCalled boolMutex
-			var correctJobStatusCalled boolMutex
+	jobStatusURL := server.URL + wantJobStatusEndpointSuffix
+	_, err = cl.JobStatus(jobStatusURL)
+	if err != nil {
+		t.Errorf("got unexpected error from JobStatus: %v", err)
+	}
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				switch req.URL.String() {
-				case wantAuthEndpoint:
-					correctAuthCalled.Lock()
-					correctAuthCalled.called = true
-					correctAuthCalled.Unlock()
-					w.Write([]byte(`{"access_token": "token", "expires_in": 1200}`))
-				case wantBulkDataExportEndpoint:
-					correctBulkDataExportCalled.Lock()
-					correctBulkDataExportCalled.called = true
-					correctBulkDataExportCalled.Unlock()
-					w.Header()["Content-Location"] = []string{"some/info/"}
-					w.WriteHeader(http.StatusAccepted)
-				case wantJobStatusEndpointSuffix:
-					correctJobStatusCalled.Lock()
-					correctJobStatusCalled.called = true
-					correctJobStatusCalled.Unlock()
-					w.Header()["X-Progress"] = []string{fmt.Sprintf("(%d%%)", 20)}
-					w.WriteHeader(http.StatusAccepted)
-				default:
-					t.Errorf("unexpected call received by bcda server at: %v", req.URL.String())
-				}
-			}))
-			defer server.Close()
-
-			baseURL := server.URL
-			cl, err := bcda.NewClient(baseURL, tc.v, "clientID", "clientSecret")
-			if err != tc.wantError {
-				t.Errorf("unexpected error from NewClient. got: %v, want %v", err, tc.wantError)
-			}
-			if tc.wantError != nil {
-				return
-			}
-
-			_, err = cl.StartBulkDataExport(nil, time.Time{}, bulkfhir.ExportGroupAll)
-			if err != nil {
-				t.Errorf("got unexpected error from StartBulkDataExport: %v", err)
-			}
-
-			jobStatusURL := server.URL + wantJobStatusEndpointSuffix
-			_, err = cl.JobStatus(jobStatusURL)
-			if err != nil {
-				t.Errorf("got unexpected error from JobStatus: %v", err)
-			}
-
-			if !correctAuthCalled.called {
-				t.Errorf("correct Authenticate endpoint was not called. expected call at: %v", wantAuthEndpoint)
-			}
-			if !correctBulkDataExportCalled.called {
-				t.Errorf("correct StartBulkDataExport endpoint not called. expected call at %v", wantBulkDataExportEndpoint)
-			}
-			if !correctJobStatusCalled.called {
-				t.Errorf("correct JobStatus endpoint not called. expected call at suffix %v", wantJobStatusEndpointSuffix)
-			}
-		})
+	if !correctAuthCalled.called {
+		t.Errorf("correct Authenticate endpoint was not called. expected call at: %v", wantAuthEndpoint)
+	}
+	if !correctBulkDataExportCalled.called {
+		t.Errorf("correct StartBulkDataExport endpoint not called. expected call at %v", wantBulkDataExportEndpoint)
+	}
+	if !correctJobStatusCalled.called {
+		t.Errorf("correct JobStatus endpoint not called. expected call at suffix %v", wantJobStatusEndpointSuffix)
 	}
 }
 

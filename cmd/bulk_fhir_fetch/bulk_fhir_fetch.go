@@ -235,7 +235,7 @@ func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
 		}
 		return bulkfhir.NewClient(cfg.baseServerURL, authenticator)
 	}
-	return bcda.NewClient(cfg.bcdaServerURL, bcda.V2, cfg.clientID, cfg.clientSecret)
+	return bcda.NewClient(cfg.bcdaServerURL, cfg.clientID, cfg.clientSecret)
 }
 
 func getTransactionTimeStore(ctx context.Context, cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {

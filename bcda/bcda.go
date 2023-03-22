@@ -17,24 +17,9 @@
 package bcda
 
 import (
-	"errors"
-
 	"github.com/google/medical_claims_tools/bulkfhir"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
-)
-
-// ErrorInvalidVersion indicates the API version provided is invalid.
-var ErrorInvalidVersion = errors.New("invalid API version provided")
-
-// Version represents a BCDA API version.
-type Version int
-
-const (
-	// V1 represents the V1 BCDA API version.
-	V1 Version = iota
-	// V2 represents the V2 BCDA API version.
-	V2
 )
 
 // ResourceTypes represents the set of resource types used by BCDA.
@@ -44,39 +29,21 @@ var ResourceTypes = []cpb.ResourceTypeCode_Value{
 	cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
 }
 
-// TODO(b/239856442): rename exported methods to include bulk fhir. For example
-// NewBulkFHIRClient.
-
 // NewClient creates and returns a new BCDA API Client for the input baseURL,
 // targeted at the provided API version.
-func NewClient(baseURL string, v Version, clientID, clientSecret string) (*bulkfhir.Client, error) {
-	if err := validateVersion(v); err != nil {
-		return nil, err
-	}
-
+func NewClient(baseURL string, clientID, clientSecret string) (*bulkfhir.Client, error) {
 	authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, getDefaultAuthURL(baseURL), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return bulkfhir.NewClient(getVersionedBaseURL(baseURL, v), authenticator)
+	return bulkfhir.NewClient(getBaseURL(baseURL), authenticator)
 }
 
-func getVersionedBaseURL(baseURL string, v Version) string {
-	versionedBaseURL := baseURL + "/api/v1"
-	if v == V2 {
-		versionedBaseURL = baseURL + "/api/v2"
-	}
-	return versionedBaseURL
+func getBaseURL(baseURL string) string {
+	return baseURL + "/api/v2"
 }
 
 func getDefaultAuthURL(baseURL string) string {
 	return baseURL + "/auth/token"
-}
-
-func validateVersion(v Version) error {
-	if v != V1 && v != V2 {
-		return ErrorInvalidVersion
-	}
-	return nil
 }
