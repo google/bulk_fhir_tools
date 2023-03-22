@@ -36,6 +36,8 @@ var once sync.Once
 // client is closed.
 var nErrs int
 
+const logID = "bulk-fhir-fetch"
+
 type logger struct {
 	infoLogger    *log.Logger
 	warningLogger *log.Logger
@@ -62,6 +64,9 @@ func InitGCP(ctx context.Context, projectID string) error {
 		return fmt.Errorf("Error creating gcp logging client: %v", err)
 	}
 	InitGCPWithClient(ctx, c)
+	log.Print("Logs for Bulk FHIR Fetch are being sent to GCP.")
+	log.Printf("View here: https://console.cloud.google.com/logs/query;query=logName%%3D%%22projects%%2F%s%%2Flogs%%2F%s%%22?project=%s", projectID, logID, projectID)
+	log.Printf("Note: you may need to adjust the time window in the logs viewer as needed.")
 	return nil
 }
 
@@ -70,7 +75,6 @@ func InitGCP(ctx context.Context, projectID string) error {
 // are written with the logID "bulk-fhir-fetch".
 func InitGCPWithClient(ctx context.Context, c *gcpLog.Client) {
 	once.Do(func() {
-		log.Print("Logs for Bulk FHIR Fetch are being sent to GCP.")
 		globalLogger.client = c
 
 		// Print all errors to stdout, and count them. Multiple calls to the OnError
@@ -81,7 +85,7 @@ func InitGCPWithClient(ctx context.Context, c *gcpLog.Client) {
 		}
 
 		// "bulk-fhir-fetch" is the logID, useful when searching or filtering logs in the GCP console.
-		logger := globalLogger.client.Logger("bulk-fhir-fetch")
+		logger := globalLogger.client.Logger(logID)
 		globalLogger.infoLogger = logger.StandardLogger(gcpLog.Info)
 		globalLogger.warningLogger = logger.StandardLogger(gcpLog.Warning)
 		globalLogger.errorLogger = logger.StandardLogger(gcpLog.Error)
