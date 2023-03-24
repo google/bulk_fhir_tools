@@ -17,8 +17,6 @@
 package bcda
 
 import (
-	"github.com/google/medical_claims_tools/bulkfhir"
-
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
@@ -27,23 +25,4 @@ var ResourceTypes = []cpb.ResourceTypeCode_Value{
 	cpb.ResourceTypeCode_PATIENT,
 	cpb.ResourceTypeCode_COVERAGE,
 	cpb.ResourceTypeCode_EXPLANATION_OF_BENEFIT,
-}
-
-// NewClient creates and returns a new BCDA API Client for the input baseURL,
-// targeted at the provided API version.
-func NewClient(baseURL string, clientID, clientSecret string) (*bulkfhir.Client, error) {
-	authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, getDefaultAuthURL(baseURL), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return bulkfhir.NewClient(getBaseURL(baseURL), authenticator)
-}
-
-func getBaseURL(baseURL string) string {
-	return baseURL + "/api/v2"
-}
-
-func getDefaultAuthURL(baseURL string) string {
-	return baseURL + "/auth/token"
 }

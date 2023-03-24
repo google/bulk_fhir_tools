@@ -44,7 +44,7 @@ var (
 	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
-	bcdaServerURL               = flag.String("bcda_server_url", "https://sandbox.bcda.cms.gov", "[Deprecated: prefer enable_generalized_bulk_import flag] The BCDA server to communicate with. By default this is https://sandbox.bcda.cms.gov")
+	bcdaServerURL               = flag.String("bcda_server_url", "", "[Deprecated: prefer enable_generalized_bulk_import flag] The BCDA server to communicate with.")
 	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "Indicates if the generalized (non-BCDA) bulk fhir flags should be used to configure the fetch. If true, fhir_server_base_url and fhir_auth_url must be set. This overrides any of the bcda-specific flags.")
 	baseServerURL               = flag.String("fhir_server_base_url", "", "The full bulk FHIR server base URL to communicate with. For example, https://sandbox.bcda.cms.gov/api/v2")
 	authURL                     = flag.String("fhir_auth_url", "", "The full authentication or \"token\" URL to use for authenticating with the FHIR server. For example, https://sandbox.bcda.cms.gov/auth/token")
@@ -131,7 +131,11 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		log.Warning("outputDir is not set and neither is enableFHIRStore: BCDA fetch will not produce any output.")
 	}
 
-	cl, err := getBulkFHIRClient(cfg)
+	authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(cfg.clientID, cfg.clientSecret, cfg.authURL, &bulkfhir.HTTPBasicOAuthOptions{Scopes: cfg.fhirAuthScopes})
+	if err != nil {
+		return err
+	}
+	cl, err := bulkfhir.NewClient(cfg.baseServerURL, authenticator)
 	if err != nil {
 		return fmt.Errorf("Error making bulkfhir client: %v", err)
 	}
@@ -221,21 +225,6 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		ExportGroup:          cfg.groupID,
 	}
 	return f.Run(ctx)
-}
-
-// getBulkFHIRClient builds and returns the right kind of bulk fhir client to
-// use, based on the mainWrapperConfig. If generalized FHIR flags are set,
-// those are used, otherwise the bcda specific flags are used to make a
-// traiditonal BCDA client. Eventually BCDA specific logic will be deprecated.
-func getBulkFHIRClient(cfg mainWrapperConfig) (*bulkfhir.Client, error) {
-	if cfg.useGeneralizedBulkImport {
-		authenticator, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(cfg.clientID, cfg.clientSecret, cfg.authURL, &bulkfhir.HTTPBasicOAuthOptions{Scopes: cfg.fhirAuthScopes})
-		if err != nil {
-			return nil, err
-		}
-		return bulkfhir.NewClient(cfg.baseServerURL, authenticator)
-	}
-	return bcda.NewClient(cfg.bcdaServerURL, cfg.clientID, cfg.clientSecret)
 }
 
 func getTransactionTimeStore(ctx context.Context, cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {
@@ -330,7 +319,6 @@ type mainWrapperConfig struct {
 	fhirStoreBatchUploadSize      int
 	fhirStoreEnableGCSBasedUpload bool
 	fhirStoreGCSBasedUploadBucket string
-	bcdaServerURL                 string
 	useGeneralizedBulkImport      bool
 	baseServerURL                 string
 	authURL                       string
@@ -343,7 +331,7 @@ type mainWrapperConfig struct {
 }
 
 func buildMainWrapperConfig() mainWrapperConfig {
-	return mainWrapperConfig{
+	c := mainWrapperConfig{
 		fhirStoreEndpoint: fhirstore.DefaultHealthcareEndpoint,
 		gcsEndpoint:       gcs.DefaultCloudStorageEndpoint,
 
@@ -367,7 +355,6 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		fhirStoreEnableGCSBasedUpload: *fhirStoreEnableGCSBasedUpload,
 		fhirStoreGCSBasedUploadBucket: *fhirStoreGCSBasedUploadBucket,
 
-		bcdaServerURL:            *bcdaServerURL,
 		useGeneralizedBulkImport: *enableGeneralizedBulkImport,
 		baseServerURL:            *baseServerURL,
 		authURL:                  *authURL,
@@ -378,4 +365,11 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		noFailOnUploadErrors:     *noFailOnUploadErrors,
 		pendingJobURL:            *pendingJobURL,
 	}
+
+	if !c.useGeneralizedBulkImport && *bcdaServerURL != "" {
+		c.baseServerURL = *bcdaServerURL + "/api/v2"
+		c.authURL = *bcdaServerURL + "/auth/token"
+	}
+
+	return c
 }

@@ -282,7 +282,9 @@ func TestMainWrapper(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
-				bcdaServerURL:              bcdaServer.URL,
+				useGeneralizedBulkImport:   true,
+				baseServerURL:              bcdaServer.URL + "/api/v2",
+				authURL:                    bcdaServer.URL + "/auth/token",
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
@@ -498,7 +500,9 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
-		bcdaServerURL:             bcdaServer.URL,
+		useGeneralizedBulkImport:  true,
+		baseServerURL:             bcdaServer.URL + "/api/v2",
+		authURL:                   bcdaServer.URL + "/auth/token",
 		sinceFile:                 sinceFilePath,
 		maxFHIRStoreUploadWorkers: 10,
 	}
@@ -589,7 +593,9 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
-		bcdaServerURL:             bcdaServer.URL,
+		useGeneralizedBulkImport:  true,
+		baseServerURL:             bcdaServer.URL + "/api/v2",
+		authURL:                   bcdaServer.URL + "/auth/token",
 		maxFHIRStoreUploadWorkers: 10,
 	}
 
@@ -701,7 +707,9 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputDir:                 outputDir,
-				bcdaServerURL:             bcdaServer.URL,
+				useGeneralizedBulkImport:  true,
+				baseServerURL:             bcdaServer.URL + "/api/v2",
+				authURL:                   bcdaServer.URL + "/auth/token",
 				maxFHIRStoreUploadWorkers: 10,
 			}
 
@@ -807,7 +815,9 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
-				bcdaServerURL:              bcdaServer.URL,
+				useGeneralizedBulkImport:   true,
+				baseServerURL:              bcdaServer.URL + "/api/v2",
+				authURL:                    bcdaServer.URL + "/auth/token",
 				fhirStoreGCPProject:        gcpProject,
 				fhirStoreGCPLocation:       gcpLocation,
 				fhirStoreGCPDatasetID:      gcpDatasetID,
@@ -927,7 +937,9 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		clientID:                      "id",
 		clientSecret:                  "secret",
 		outputDir:                     outputDir,
-		bcdaServerURL:                 bcdaServer.URL,
+		useGeneralizedBulkImport:      true,
+		baseServerURL:                 bcdaServer.URL + "/api/v2",
+		authURL:                       bcdaServer.URL + "/auth/token",
 		fhirStoreGCPProject:           gcpProject,
 		fhirStoreGCPLocation:          gcpLocation,
 		fhirStoreGCPDatasetID:         gcpDatasetID,
@@ -1143,13 +1155,15 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	// performance improvement. A seperate test below tests that setting flags
 	// properly populates mainWrapperConfig.
 	cfg := mainWrapperConfig{
-		gcsEndpoint:   gcsServer.URL(),
-		clientID:      "id",
-		clientSecret:  "secret",
-		outputDir:     outputDir,
-		bcdaServerURL: bcdaServer.URL,
-		rectify:       true,
-		sinceFile:     sinceFile,
+		gcsEndpoint:              gcsServer.URL(),
+		clientID:                 "id",
+		clientSecret:             "secret",
+		outputDir:                outputDir,
+		useGeneralizedBulkImport: true,
+		baseServerURL:            bcdaServer.URL + "/api/v2",
+		authURL:                  bcdaServer.URL + "/auth/token",
+		rectify:                  true,
+		sinceFile:                sinceFile,
 	}
 	// Run mainWrapper:
 	if err := mainWrapper(cfg); err != nil {
@@ -1247,12 +1261,14 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 			// performance improvement. A seperate test below tests that setting flags
 			// properly populates mainWrapperConfig.
 			cfg := mainWrapperConfig{
-				gcsEndpoint:   gcsServer.URL(),
-				clientID:      "id",
-				clientSecret:  "secret",
-				outputDir:     tc.outputDir,
-				bcdaServerURL: bcdaServer.URL,
-				rectify:       true,
+				gcsEndpoint:              gcsServer.URL(),
+				clientID:                 "id",
+				clientSecret:             "secret",
+				outputDir:                tc.outputDir,
+				useGeneralizedBulkImport: true,
+				baseServerURL:            bcdaServer.URL + "/api/v2",
+				authURL:                  bcdaServer.URL + "/auth/token",
+				rectify:                  true,
 			}
 			// Run mainWrapper:
 			if err := mainWrapper(cfg); err != nil {
@@ -1426,7 +1442,6 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		fhirStoreBatchUploadSize:      10,
 		fhirStoreEnableGCSBasedUpload: true,
 		fhirStoreGCSBasedUploadBucket: "my-bucket",
-		bcdaServerURL:                 "url",
 		useGeneralizedBulkImport:      true,
 		baseServerURL:                 "url",
 		authURL:                       "url",
@@ -1437,10 +1452,27 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		pendingJobURL:                 "jobURL",
 	}
 
-	if diff := cmp.Diff(buildMainWrapperConfig(), expectedCfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
-		t.Errorf("buildMainWrapperConfig unexpected diff: %s", diff)
+	if diff := cmp.Diff(expectedCfg, buildMainWrapperConfig(), cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
+		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
+	}
+}
+
+func TestBuildMainWrapperConfigBCDAFlag(t *testing.T) {
+	defer SaveFlags().Restore()
+	flag.Set("bcda_server_url", "url")
+
+	expectedCfg := mainWrapperConfig{
+		fhirStoreEndpoint:         fhirstore.DefaultHealthcareEndpoint,
+		gcsEndpoint:               gcs.DefaultCloudStorageEndpoint,
+		maxFHIRStoreUploadWorkers: 10,
+		fhirAuthScopes:            []string{""},
+		baseServerURL:             "url/api/v2",
+		authURL:                   "url/auth/token",
 	}
 
+	if diff := cmp.Diff(expectedCfg, buildMainWrapperConfig(), cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
+		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
+	}
 }
 
 // serverAlwaysFails returns a server that always fails with a 500 error code.
