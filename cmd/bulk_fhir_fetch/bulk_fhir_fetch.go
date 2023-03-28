@@ -95,6 +95,7 @@ func main() {
 
 // mainWrapper allows for easier testing of the main function.
 func mainWrapper(cfg mainWrapperConfig) error {
+	log.Infof("Config: %+v", cfg)
 	ctx := context.Background()
 
 	if err := validateConfig(cfg); err != nil {
