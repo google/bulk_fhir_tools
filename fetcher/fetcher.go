@@ -143,6 +143,7 @@ func (f *Fetcher) maybeStartJob(ctx context.Context) error {
 		f.JobURL, err = f.Client.StartBulkDataExportAll(f.ResourceTypes, since)
 	}
 	if err != nil {
+		log.Errorf("Error starting job: %v", err)
 		return fmt.Errorf("unable to start Bulk FHIR export job: %w", err)
 	}
 	log.Infof("Started Bulk FHIR export job: %s\n", f.JobURL)
