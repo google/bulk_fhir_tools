@@ -96,8 +96,7 @@ main:
                          -fhir_store_id=${FHIR_STORE_ID}
                          -fhir_store_enable_gcs_based_upload=true
                          -fhir_store_gcs_based_upload_bucket=${BUCKET}
-                         -alsologtostderr=true
-                         -stderrthreshold=0)"
+                         -enable_gcp_logging=true)"
                     environment:
                       # These environment variables get passed to the batch job's VM and populate the above command.
                       # TODO(b/256011525): Replace with a place holders.
