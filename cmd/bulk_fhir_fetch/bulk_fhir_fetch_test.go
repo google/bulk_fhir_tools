@@ -44,7 +44,7 @@ import (
 	"github.com/google/medical_claims_tools/fhirstore"
 )
 
-func TestMainWrapper(t *testing.T) {
+func TestBulkFHIRFetchWrapper(t *testing.T) {
 	cases := []struct {
 		name                              string
 		rectify                           bool
@@ -56,7 +56,7 @@ func TestMainWrapper(t *testing.T) {
 		// sinceFileLatestTimestamp is the timestamp expected to be sent to the
 		// BCDA server.
 		sinceFileLatestTimestamp string
-		// sinceFileExpectedContent is the expected sinceFile content after mainWrapper
+		// sinceFileExpectedContent is the expected sinceFile content after bulkFHIRFetchWrapper
 		// completes.
 		sinceFileExpectedContent []byte
 		// fhirStoreFailures causes the test fhir store server to return errors if
@@ -273,12 +273,12 @@ func TestMainWrapper(t *testing.T) {
 
 			outputDir := t.TempDir()
 
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
+			// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+			// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
 			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
+			// properly populates bulkFHIRFetchWrapperConfig.
+			cfg := bulkFHIRFetchConfig{
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
@@ -358,16 +358,16 @@ func TestMainWrapper(t *testing.T) {
 					if !tc.disableFHIRStoreUploadChecks && tc.fhirStoreEnableBatchUpload {
 						expectedResources := [][]byte{file1Data, file2DataRectified, file3Data}
 						// Note that differing batch upload sizes are tested more
-						// extensively in the TestMainWrapper_BatchUploadSize test below.
+						// extensively in the TestBulkFHIRFetchWrapper_BatchUploadSize test below.
 						expectedBatchSize := 1 // this is because we have one uploader per data file, and per data file there's only one resource.
 						cfg.fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, expectedBatchSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 					}
 				}
 			}
 
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); !(errors.Is(err, tc.wantError) || strings.Contains(err.Error(), tc.wantError.Error())) {
-				t.Errorf("mainWrapper(%v) want error %v; got %v", cfg, tc.wantError, err)
+			// Run bulkFHIRFetchWrapper:
+			if err := bulkFHIRFetchWrapper(cfg); !(errors.Is(err, tc.wantError) || strings.Contains(err.Error(), tc.wantError.Error())) {
+				t.Errorf("bulkFHIRFetchWrapper(%v) want error %v; got %v", cfg, tc.wantError, err)
 			}
 
 			// Check upload errors file if necessary:
@@ -396,7 +396,7 @@ func TestMainWrapper(t *testing.T) {
 
 				if tc.setPendingJobURL {
 					if got := exportEndpointCalled.Value(); got > 0 {
-						t.Errorf("mainWrapper: when pendingJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
+						t.Errorf("bulkFHIRFetchWrapper: when pendingJobURL is provided, did not expect any calls to BCDA export API. got: %v, want: %v", got, 0)
 					}
 				}
 
@@ -413,7 +413,7 @@ func TestMainWrapper(t *testing.T) {
 							t.Errorf("error reading file %s: %v", fullPath, err)
 						}
 						if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, wantData)) {
-							t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
+							t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
 						}
 					}
 				}
@@ -441,7 +441,7 @@ func TestMainWrapper(t *testing.T) {
 	}
 }
 
-func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
+func TestBulkFHIRFetchWrapper_FirstTimeSinceFile(t *testing.T) {
 	t.Parallel()
 	metrics.InitNoOp()
 	// Declare test data:
@@ -490,12 +490,12 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 	// Set flags for this test case:
 	outputDir := t.TempDir()
 	sinceFilePath := path.Join(t.TempDir(), "since_file.txt")
-	// Set mainWrapperConfig for this test case. In practice, values are
-	// populated in mainWrapperConfig from flags. Setting the config struct
+	// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+	// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
 	// performance improvement. A seperate test below tests that setting flags
-	// properly populates mainWrapperConfig.
-	cfg := mainWrapperConfig{
+	// properly populates bulkFHIRFetchWrapperConfig.
+	cfg := bulkFHIRFetchConfig{
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
@@ -505,9 +505,9 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 		maxFHIRStoreUploadWorkers: 10,
 	}
 
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != nil {
-		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
+		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
 	// Check that since file was created with the proper first entry.
@@ -528,8 +528,8 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 
 }
 
-func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
-	// This tests that if JobStatus returns unauthorized, mainWrapper attempts to
+func TestBulkFHIRFetchWrapper_GetJobStatusAuthRetry(t *testing.T) {
+	// This tests that if JobStatus returns unauthorized, bulkFHIRFetchWrapper attempts to
 	// re-authorize and try again.
 	t.Parallel()
 	metrics.InitNoOp()
@@ -582,12 +582,12 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 
 	// Set flags for this test case:
 	outputDir := t.TempDir()
-	// Set mainWrapperConfig for this test case. In practice, values are
-	// populated in mainWrapperConfig from flags. Setting the config struct
+	// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+	// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
 	// performance improvement. A seperate test below tests that setting flags
-	// properly populates mainWrapperConfig.
-	cfg := mainWrapperConfig{
+	// properly populates bulkFHIRFetchWrapperConfig.
+	cfg := bulkFHIRFetchConfig{
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
@@ -596,21 +596,21 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 		maxFHIRStoreUploadWorkers: 10,
 	}
 
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != nil {
-		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
+		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
 	if got := authCalled.Value(); got != 2 {
-		t.Errorf("mainWrapper: expected auth to be called exactly twice, got: %d, want: %d", got, 2)
+		t.Errorf("bulkFHIRFetchWrapper: expected auth to be called exactly twice, got: %d, want: %d", got, 2)
 	}
 	if got := jobsCalled.Value(); got != 2 {
-		t.Errorf("mainWrapper: expected jobStatus to be called exactly twice, got: %d, want: %d", got, 2)
+		t.Errorf("bulkFHIRFetchWrapper: expected jobStatus to be called exactly twice, got: %d, want: %d", got, 2)
 	}
 }
 
-func TestMainWrapper_GetDataRetry(t *testing.T) {
-	// This tests that if GetData returns unauthorized or not found, mainWrapper
+func TestBulkFHIRFetchWrapper_GetDataRetry(t *testing.T) {
+	// This tests that if GetData returns unauthorized or not found, bulkFHIRFetchWrapper
 	// attempts to re-authorize and try again at least 5 times.
 	cases := []struct {
 		name               string
@@ -695,12 +695,12 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 
 			// Set flags for this test case:
 			outputDir := t.TempDir()
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
+			// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+			// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
 			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
+			// properly populates bulkFHIRFetchWrapperConfig.
+			cfg := bulkFHIRFetchConfig{
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputDir:                 outputDir,
@@ -709,24 +709,24 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				maxFHIRStoreUploadWorkers: 10,
 			}
 
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); !errors.Is(err, tc.wantError) {
-				t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, tc.wantError)
+			// Run bulkFHIRFetchWrapper:
+			if err := bulkFHIRFetchWrapper(cfg); !errors.Is(err, tc.wantError) {
+				t.Errorf("bulkFHIRFetchWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, tc.wantError)
 			}
 			if tc.wantError == nil {
 				wantCalls := tc.numRetriesBeforeOK + 1
 				if got := authCalled.Value(); got != wantCalls {
-					t.Errorf("mainWrapper: expected auth to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
+					t.Errorf("bulkFHIRFetchWrapper: expected auth to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
 				}
 				if got := getDataCalled.Value(); got != wantCalls {
-					t.Errorf("mainWrapper: expected getDataCalled to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
+					t.Errorf("bulkFHIRFetchWrapper: expected getDataCalled to be called exactly %d, got: %d, want: %d", wantCalls, got, wantCalls)
 				}
 			}
 		})
 	}
 }
 
-func TestMainWrapper_BatchUploadSize(t *testing.T) {
+func TestBulkFHIRFetchWrapper_BatchUploadSize(t *testing.T) {
 	// This test more comprehensively checks setting different batch sizes in
 	// bulk_fhir_fetch.
 	cases := []struct {
@@ -802,12 +802,12 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			gcpDatasetID := "dataset"
 			gcpFHIRStoreID := "fhirID"
 
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
+			// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+			// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
 			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
+			// properly populates bulkFHIRFetchWrapperConfig.
+			cfg := bulkFHIRFetchConfig{
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
@@ -827,16 +827,16 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 			expectedResources := [][]byte{[]byte(patient1), []byte(patient2), []byte(patient3)}
 			cfg.fhirStoreEndpoint = testhelpers.FHIRStoreServerBatch(t, expectedResources, tc.batchUploadSize, gcpProject, gcpLocation, gcpDatasetID, gcpFHIRStoreID)
 
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); err != nil {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			// Run bulkFHIRFetchWrapper:
+			if err := bulkFHIRFetchWrapper(cfg); err != nil {
+				t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 			}
 
 		})
 	}
 }
 
-func TestMainWrapper_GCSBasedUpload(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GCSBasedUpload(t *testing.T) {
 	t.Parallel()
 	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
@@ -921,12 +921,12 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		}
 	}))
 
-	// Set mainWrapperConfig for this test case. In practice, values are
-	// populated in mainWrapperConfig from flags. Setting the config struct
+	// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+	// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
 	// performance improvement. A seperate test below tests that setting flags
-	// properly populates mainWrapperConfig.
-	cfg := mainWrapperConfig{
+	// properly populates bulkFHIRFetchWrapperConfig.
+	cfg := bulkFHIRFetchConfig{
 		gcsEndpoint:                   gcsServer.URL(),
 		fhirStoreEndpoint:             fhirStoreServer.URL,
 		clientID:                      "id",
@@ -943,9 +943,9 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		enableFHIRStore:               true,
 		rectify:                       true,
 	}
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != nil {
-		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
+		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
 	objName := serverTransactionTime + "/Patient_0.ndjson"
@@ -958,10 +958,10 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 	}
 
 	if !importCalled {
-		t.Errorf("mainWrapper(%v) expected FHIR Store import to be called, but was not", cfg)
+		t.Errorf("bulkFHIRFetchWrapper(%v) expected FHIR Store import to be called, but was not", cfg)
 	}
 	if !statusCalled {
-		t.Errorf("mainWrapper(%v) expected FHIR Store import operation status to be called, but was not", cfg)
+		t.Errorf("bulkFHIRFetchWrapper(%v) expected FHIR Store import operation status to be called, but was not", cfg)
 	}
 
 	// Check that files were also written to disk under outputDir
@@ -976,13 +976,13 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		t.Errorf("error reading file %s: %v", fullPath, err)
 	}
 	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
 	}
 }
 
-func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
 	metrics.InitNoOp()
-	cfg := mainWrapperConfig{
+	cfg := bulkFHIRFetchConfig{
 		clientID:                      "id",
 		clientSecret:                  "secret",
 		baseServerURL:                 "url",
@@ -990,13 +990,13 @@ func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
 		fhirStoreEnableGCSBasedUpload: true,
 		// fhirStoreGCSBasedUploadBucket not specified.
 	}
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != errMustSpecifyGCSBucket {
-		t.Errorf("mainWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, errMustSpecifyGCSBucket)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != errMustSpecifyGCSBucket {
+		t.Errorf("bulkFHIRFetchWrapper(%v) unexpected error. got: %v, want: %v", cfg, err, errMustSpecifyGCSBucket)
 	}
 }
 
-func TestMainWrapper_GeneralizedImport(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GeneralizedImport(t *testing.T) {
 	t.Parallel()
 	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
@@ -1060,12 +1060,12 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	// Set mainWrapperConfig for this test case. In practice, values are
-	// populated in mainWrapperConfig from flags. Setting the config struct
+	// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+	// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
 	// performance improvement. A seperate test below tests that setting flags
-	// properly populates mainWrapperConfig.
-	cfg := mainWrapperConfig{
+	// properly populates bulkFHIRFetchWrapperConfig.
+	cfg := bulkFHIRFetchConfig{
 		clientID:       "id",
 		clientSecret:   "secret",
 		outputDir:      outputDir,
@@ -1075,9 +1075,9 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 		rectify:        true,
 	}
 
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != nil {
-		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
+		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
 	// Check that files were also written to disk under outputDir
@@ -1092,12 +1092,12 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 		t.Errorf("error reading file %s: %v", fullPath, err)
 	}
 	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
 	}
 
 }
 
-func TestMainWrapper_GCSBasedSince(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GCSBasedSince(t *testing.T) {
 	t.Parallel()
 	metrics.InitNoOp()
 	patient1 := `{"resourceType":"Patient","id":"PatientID1"}`
@@ -1144,12 +1144,12 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		Data: []byte(since),
 	})
 
-	// Set mainWrapperConfig for this test case. In practice, values are
-	// populated in mainWrapperConfig from flags. Setting the config struct
+	// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+	// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 	// instead of the flags in tests enables parallelization with significant
 	// performance improvement. A seperate test below tests that setting flags
-	// properly populates mainWrapperConfig.
-	cfg := mainWrapperConfig{
+	// properly populates bulkFHIRFetchWrapperConfig.
+	cfg := bulkFHIRFetchConfig{
 		gcsEndpoint:   gcsServer.URL(),
 		clientID:      "id",
 		clientSecret:  "secret",
@@ -1159,9 +1159,9 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		rectify:       true,
 		sinceFile:     sinceFile,
 	}
-	// Run mainWrapper:
-	if err := mainWrapper(cfg); err != nil {
-		t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+	// Run bulkFHIRFetchWrapper:
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
+		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
 	obj, ok := gcsServer.GetObject("sinceBucket", "sinceFile")
@@ -1184,12 +1184,12 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 		t.Errorf("error reading file %s: %v", fullPath, err)
 	}
 	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
 	}
 
 }
 
-func TestMainWrapper_GCSoutputDir(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GCSoutputDir(t *testing.T) {
 	cases := []struct {
 		name                        string
 		outputDir                   string
@@ -1249,12 +1249,12 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 
 			gcsServer := testhelpers.NewGCSServer(t)
 
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
+			// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+			// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
 			// performance improvement. A seperate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
+			// properly populates bulkFHIRFetchWrapperConfig.
+			cfg := bulkFHIRFetchConfig{
 				gcsEndpoint:   gcsServer.URL(),
 				clientID:      "id",
 				clientSecret:  "secret",
@@ -1263,9 +1263,9 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 				authURL:       bcdaServer.URL + "/auth/token",
 				rectify:       true,
 			}
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); err != nil {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			// Run bulkFHIRFetchWrapper:
+			if err := bulkFHIRFetchWrapper(cfg); err != nil {
+				t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 			}
 
 			obj, ok := gcsServer.GetObject(tc.expectedGCSItemBucket, tc.expectedGCSItemRelativePath)
@@ -1279,7 +1279,7 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 	}
 }
 
-func TestMainWrapper_GroupID(t *testing.T) {
+func TestBulkFHIRFetchWrapper_GroupID(t *testing.T) {
 	cases := []struct {
 		name    string
 		groupID string
@@ -1345,12 +1345,12 @@ func TestMainWrapper_GroupID(t *testing.T) {
 
 			outputDir := t.TempDir()
 
-			// Set mainWrapperConfig for this test case. In practice, values are
-			// populated in mainWrapperConfig from flags. Setting the config struct
+			// Set bulkFHIRFetchWrapperConfig for this test case. In practice, values are
+			// populated in bulkFHIRFetchWrapperConfig from flags. Setting the config struct
 			// instead of the flags in tests enables parallelization with significant
 			// performance improvement. A separate test below tests that setting flags
-			// properly populates mainWrapperConfig.
-			cfg := mainWrapperConfig{
+			// properly populates bulkFHIRFetchWrapperConfig.
+			cfg := bulkFHIRFetchConfig{
 				clientID:       "id",
 				clientSecret:   "secret",
 				outputDir:      outputDir,
@@ -1361,9 +1361,9 @@ func TestMainWrapper_GroupID(t *testing.T) {
 				groupID:        tc.groupID,
 			}
 
-			// Run mainWrapper:
-			if err := mainWrapper(cfg); err != nil {
-				t.Errorf("mainWrapper(%v) error: %v", cfg, err)
+			// Run bulkFHIRFetchWrapper:
+			if err := bulkFHIRFetchWrapper(cfg); err != nil {
+				t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 			}
 
 			// Check that files were also written to disk under outputDir
@@ -1378,14 +1378,14 @@ func TestMainWrapper_GroupID(t *testing.T) {
 				t.Errorf("error reading file %s: %v", fullPath, err)
 			}
 			if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-				t.Errorf("mainWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+				t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
 			}
 		})
 	}
 }
 
-func TestBuildMainWrapperConfig(t *testing.T) {
-	// Set every flag, and see that it is built into mainWrapper correctly.
+func TestBuildBulkFHIRFetchWrapperConfig(t *testing.T) {
+	// Set every flag, and see that it is built into bulkFHIRFetchWrapper correctly.
 	defer SaveFlags().Restore()
 	flag.Set("client_id", "clientID")
 	flag.Set("client_secret", "clientSecret")
@@ -1416,7 +1416,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("no_fail_on_upload_errors", "true")
 	flag.Set("pending_job_url", "jobURL")
 
-	expectedCfg := mainWrapperConfig{
+	expectedCfg := bulkFHIRFetchConfig{
 		fhirStoreEndpoint:             fhirstore.DefaultHealthcareEndpoint,
 		gcsEndpoint:                   gcs.DefaultCloudStorageEndpoint,
 		clientID:                      "clientID",
@@ -1445,21 +1445,21 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		pendingJobURL:                 "jobURL",
 	}
 
-	cfg, err := buildMainWrapperConfig()
+	cfg, err := buildBulkFHIRFetchConfig()
 	if err != nil {
-		t.Errorf("buildMainWrapperConfig() error: %v", err)
+		t.Errorf("buildBulkFHIRFetchConfig() error: %v", err)
 	}
 
-	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
-		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
+	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
+		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-want +got): %s", diff)
 	}
 }
 
-func TestBuildMainWrapperConfigBCDAFlag(t *testing.T) {
+func TestBuildBulkFHIRFetchWrapperConfigBCDAFlag(t *testing.T) {
 	defer SaveFlags().Restore()
 	flag.Set("bcda_server_url", "url")
 
-	expectedCfg := mainWrapperConfig{
+	expectedCfg := bulkFHIRFetchConfig{
 		fhirStoreEndpoint:         fhirstore.DefaultHealthcareEndpoint,
 		gcsEndpoint:               gcs.DefaultCloudStorageEndpoint,
 		maxFHIRStoreUploadWorkers: 10,
@@ -1469,23 +1469,23 @@ func TestBuildMainWrapperConfigBCDAFlag(t *testing.T) {
 		authURL:                   "url/auth/token",
 	}
 
-	cfg, err := buildMainWrapperConfig()
+	cfg, err := buildBulkFHIRFetchConfig()
 	if err != nil {
-		t.Errorf("buildMainWrapperConfig() error: %v", err)
+		t.Errorf("buildBulkFHIRFetchConfig() error: %v", err)
 	}
 
-	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
-		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
+	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
+		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-want +got): %s", diff)
 	}
 }
 
-func TestBuildMainWrapperConfigFHIRResourceTypesError(t *testing.T) {
+func TestBuildBulkFHIRFetchConfig_FHIRResourceTypesError(t *testing.T) {
 	defer SaveFlags().Restore()
 	flag.Set("fhir_resource_types", "Ptaient")
 
-	_, err := buildMainWrapperConfig()
+	_, err := buildBulkFHIRFetchConfig()
 	if err == nil {
-		t.Errorf("buildMainWrapperConfig() should have returned an error")
+		t.Errorf("buildBulkFHIRFetchConfig() should have returned an error")
 	}
 }
 

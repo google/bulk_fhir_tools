@@ -90,23 +90,21 @@ const (
 
 func main() {
 	flag.Parse()
-	cfg, err := buildMainWrapperConfig()
+	cfg, err := buildBulkFHIRFetchConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := mainWrapper(cfg); err != nil {
+	if err := bulkFHIRFetchWrapper(cfg); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// mainWrapper allows for easier testing of the main function.
-func mainWrapper(cfg mainWrapperConfig) error {
+// bulkFHIRFetchWrapper initializes logging & metrics then calls bulkFHIRFetch() which contains the
+// application logic for this CLI. bulkFHIRFetchWrapper makes certain testing in the main package
+// easier.
+func bulkFHIRFetchWrapper(cfg bulkFHIRFetchConfig) error {
 	ctx := context.Background()
-
-	if err := validateConfig(cfg); err != nil {
-		return err
-	}
 
 	if cfg.enableGCPLog {
 		if err := log.InitGCP(ctx, cfg.fhirStoreGCPProject); err != nil {
@@ -127,6 +125,21 @@ func mainWrapper(cfg mainWrapperConfig) error {
 			stdlog.Printf("error closing the logger: %v", err)
 		}
 	}()
+
+	if err := bulkFHIRFetch(ctx, cfg); err != nil {
+		log.Errorf("bulk_fhir_fetch error: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// bulkFHIRFetch holds the business logic for the CLI tool. Logging and metrics init and close
+// are done in the parent bulkFHIRFetchWrapper.
+func bulkFHIRFetch(ctx context.Context, cfg bulkFHIRFetchConfig) error {
+	if err := validateConfig(cfg); err != nil {
+		return err
+	}
 
 	if cfg.outputPrefix != "" {
 		errStr := "outputPrefix is deprecated, please use outputDir instead"
@@ -234,7 +247,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 	return f.Run(ctx)
 }
 
-func getTransactionTimeStore(ctx context.Context, cfg mainWrapperConfig) (bulkfhir.TransactionTimeStore, error) {
+func getTransactionTimeStore(ctx context.Context, cfg bulkFHIRFetchConfig) (bulkfhir.TransactionTimeStore, error) {
 	if cfg.since != "" && cfg.sinceFile != "" {
 		return nil, errors.New("only one of since or since_file flags may be set (cannot set both)")
 	}
@@ -269,7 +282,7 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath)
 }
 
-func validateConfig(cfg mainWrapperConfig) error {
+func validateConfig(cfg bulkFHIRFetchConfig) error {
 	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
 	}
@@ -299,12 +312,12 @@ func validateConfig(cfg mainWrapperConfig) error {
 	return nil
 }
 
-// mainWrapperConfig holds non-flag (for now) config variables for the
-// mainWrapper function. This is largely to assist in better testing without
+// bulkFHIRFetchConfig holds non-flag (for now) config variables for the
+// bulkFHIRFetch(Wrapper) functions. This is largely to assist in better testing without
 // having to change global variables.
 // TODO(b/213587622): it may be possible to safely refactor flags into this
 // struct in the future.
-type mainWrapperConfig struct {
+type bulkFHIRFetchConfig struct {
 	fhirStoreEndpoint string
 	gcsEndpoint       string
 
@@ -337,8 +350,8 @@ type mainWrapperConfig struct {
 	pendingJobURL                 string
 }
 
-func buildMainWrapperConfig() (mainWrapperConfig, error) {
-	c := mainWrapperConfig{
+func buildBulkFHIRFetchConfig() (bulkFHIRFetchConfig, error) {
+	c := bulkFHIRFetchConfig{
 		fhirStoreEndpoint: fhirstore.DefaultHealthcareEndpoint,
 		gcsEndpoint:       gcs.DefaultCloudStorageEndpoint,
 
@@ -386,7 +399,7 @@ func buildMainWrapperConfig() (mainWrapperConfig, error) {
 		for _, r := range strings.Split(*fhirResourceTypes, ",") {
 			v, err := bulkfhir.ResourceTypeCodeFromName(r)
 			if err != nil {
-				return mainWrapperConfig{}, fmt.Errorf("fhir_resource_types flag invalid: %w", err)
+				return bulkFHIRFetchConfig{}, fmt.Errorf("fhir_resource_types flag invalid: %w", err)
 			}
 			c.fhirResourceTypes = append(c.fhirResourceTypes, v)
 		}
