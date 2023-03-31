@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"flag"
-	"github.com/google/medical_claims_tools/bcda"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fetcher"
 	"github.com/google/medical_claims_tools/fhir/processing"
@@ -33,6 +32,8 @@ import (
 	"github.com/google/medical_claims_tools/gcs"
 	log "github.com/google/medical_claims_tools/internal/logger"
 	"github.com/google/medical_claims_tools/internal/metrics"
+
+	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 // TODO(b/244579147): consider a yml config to represent configuration inputs
@@ -48,6 +49,7 @@ var (
 	authURL                     = flag.String("fhir_auth_url", "", "The full authentication or \"token\" URL to use for authenticating with the FHIR server. For example, https://sandbox.bcda.cms.gov/auth/token")
 	fhirAuthScopes              = flag.String("fhir_auth_scopes", "", "A comma separated list of auth scopes that should be requested when getting an auth token.")
 	groupID                     = flag.String("group_id", "", "The FHIR Group ID to export data for. If unset, defaults to exporting data for all patients.")
+	fhirResourceTypes           = flag.String("fhir_resource_types", "", "A comma separated list of FHIR resource types. Only the FHIR resource types listed will be returned from the bulk FHIR server. If unset, all FHIR resources will be returned. For example Practitioner,Patient,Encounter")
 	bcdaServerURL               = flag.String("bcda_server_url", "", "[Deprecated: prefer fhir_server_base_url and fhir_auth_url flags] The BCDA server to communicate with. If using this flag, do not use fhir_server_base_url and fhir_auth_url flags. For example, https://sandbox.bcda.cms.gov")
 	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "[Deprecated: this flag is a noop and will be removed soon.]")
 
@@ -88,7 +90,12 @@ const (
 
 func main() {
 	flag.Parse()
-	if err := mainWrapper(buildMainWrapperConfig()); err != nil {
+	cfg, err := buildMainWrapperConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := mainWrapper(cfg); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -221,7 +228,7 @@ func mainWrapper(cfg mainWrapperConfig) error {
 		TransactionTimeStore: ttStore,
 		TransactionTime:      transactionTime,
 		JobURL:               cfg.pendingJobURL,
-		ResourceTypes:        bcda.ResourceTypes,
+		ResourceTypes:        cfg.fhirResourceTypes,
 		ExportGroup:          cfg.groupID,
 	}
 	return f.Run(ctx)
@@ -323,13 +330,14 @@ type mainWrapperConfig struct {
 	authURL                       string
 	fhirAuthScopes                []string
 	groupID                       string
+	fhirResourceTypes             []cpb.ResourceTypeCode_Value
 	since                         string
 	sinceFile                     string
 	noFailOnUploadErrors          bool
 	pendingJobURL                 string
 }
 
-func buildMainWrapperConfig() mainWrapperConfig {
+func buildMainWrapperConfig() (mainWrapperConfig, error) {
 	c := mainWrapperConfig{
 		fhirStoreEndpoint: fhirstore.DefaultHealthcareEndpoint,
 		gcsEndpoint:       gcs.DefaultCloudStorageEndpoint,
@@ -358,6 +366,7 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		authURL:              *authURL,
 		fhirAuthScopes:       strings.Split(*fhirAuthScopes, ","),
 		groupID:              *groupID,
+		fhirResourceTypes:    []cpb.ResourceTypeCode_Value{},
 		since:                *since,
 		sinceFile:            *sinceFile,
 		noFailOnUploadErrors: *noFailOnUploadErrors,
@@ -373,5 +382,14 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		c.authURL = *bcdaServerURL + "/auth/token"
 	}
 
-	return c
+	if *fhirResourceTypes != "" {
+		for _, r := range strings.Split(*fhirResourceTypes, ",") {
+			v, err := bulkfhir.ResourceTypeCodeFromName(r)
+			if err != nil {
+				return mainWrapperConfig{}, fmt.Errorf("fhir_resource_types flag invalid: %w", err)
+			}
+			c.fhirResourceTypes = append(c.fhirResourceTypes, v)
+		}
+	}
+	return c, nil
 }

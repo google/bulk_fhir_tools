@@ -1410,6 +1410,7 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 	flag.Set("fhir_server_base_url", "url")
 	flag.Set("fhir_auth_url", "url")
 	flag.Set("fhir_auth_scopes", "scope1,scope2")
+	flag.Set("fhir_resource_types", "Coverage,Patient")
 	flag.Set("since", "12345")
 	flag.Set("since_file", "sinceFile")
 	flag.Set("no_fail_on_upload_errors", "true")
@@ -1437,13 +1438,19 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		baseServerURL:                 "url",
 		authURL:                       "url",
 		fhirAuthScopes:                []string{"scope1", "scope2"},
+		fhirResourceTypes:             []cpb.ResourceTypeCode_Value{cpb.ResourceTypeCode_COVERAGE, cpb.ResourceTypeCode_PATIENT},
 		since:                         "12345",
 		sinceFile:                     "sinceFile",
 		noFailOnUploadErrors:          true,
 		pendingJobURL:                 "jobURL",
 	}
 
-	if diff := cmp.Diff(expectedCfg, buildMainWrapperConfig(), cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
+	cfg, err := buildMainWrapperConfig()
+	if err != nil {
+		t.Errorf("buildMainWrapperConfig() error: %v", err)
+	}
+
+	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
 		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
 	}
 }
@@ -1457,12 +1464,28 @@ func TestBuildMainWrapperConfigBCDAFlag(t *testing.T) {
 		gcsEndpoint:               gcs.DefaultCloudStorageEndpoint,
 		maxFHIRStoreUploadWorkers: 10,
 		fhirAuthScopes:            []string{""},
+		fhirResourceTypes:         []cpb.ResourceTypeCode_Value{},
 		baseServerURL:             "url/api/v2",
 		authURL:                   "url/auth/token",
 	}
 
-	if diff := cmp.Diff(expectedCfg, buildMainWrapperConfig(), cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
+	cfg, err := buildMainWrapperConfig()
+	if err != nil {
+		t.Errorf("buildMainWrapperConfig() error: %v", err)
+	}
+
+	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(mainWrapperConfig{})); diff != "" {
 		t.Errorf("buildMainWrapperConfig unexpected diff (-want +got): %s", diff)
+	}
+}
+
+func TestBuildMainWrapperConfigFHIRResourceTypesError(t *testing.T) {
+	defer SaveFlags().Restore()
+	flag.Set("fhir_resource_types", "Ptaient")
+
+	_, err := buildMainWrapperConfig()
+	if err == nil {
+		t.Errorf("buildMainWrapperConfig() should have returned an error")
 	}
 }
 

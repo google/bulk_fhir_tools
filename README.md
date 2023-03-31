@@ -27,7 +27,6 @@ to follow your organization's policies with respect to PHI.__
   is highly configurable via flags, and can support pulling incremental data
   only, among other features. See [bulk_fhir_fetch configuration examples](#bulk_fhir_fetch-configuration-examples) for details on how to use this program.
 * `bulkfhir/`: A generic client package for interacting with FHIR Bulk Data APIs.
-* `bcda/`: [Deprecated: prefer the generalized bulkfhir package] A go client package for interacting with the [BCDA](https://bcda.cms.gov/).
 * `analytics/`: A folder with some analytics notebooks and examples.
 * `fhirstore/`: A go helper package for uploading to FHIR store.
 * `fhir/`: A go package with some helpful utilities for working with FHIR.
