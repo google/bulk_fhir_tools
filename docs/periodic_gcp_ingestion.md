@@ -48,7 +48,7 @@ data to local disk only (and only fetch new data on each run, making use of the
 `- since_file` flag), you can add a line like:
 
 ```
-0 4 * * * ./path/to/bulk_fhir_fetch -client_id=<YOUR_CLIENT_ID> -client_secret=<YOUR_CLIENT_SECRET> -enable_generalized_bulk_import=true -fhir_server_base_url=<FHIR_SERVER_URL> -fhir_auth_url=<FHIR_SERVER_AUTH_URL> -output_dir=<PATH_TO_LOCAL_STORE> -since_file=<PATH_TO_SINCE_FILE>
+0 4 * * * ./path/to/bulk_fhir_fetch -client_id=<YOUR_CLIENT_ID> -client_secret=<YOUR_CLIENT_SECRET> -fhir_server_base_url=<FHIR_SERVER_URL> -fhir_auth_url=<FHIR_SERVER_AUTH_URL> -output_dir=<PATH_TO_LOCAL_STORE> -since_file=<PATH_TO_SINCE_FILE>
 ```
 
 [Read more here](https://en.wikipedia.org/wiki/Cron#Overview) to learn about

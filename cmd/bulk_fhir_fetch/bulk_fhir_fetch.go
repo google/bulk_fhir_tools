@@ -44,12 +44,12 @@ var (
 	outputDir    = flag.String("output_dir", "", "Data output directory. If unset, no file output will be written. This can also be a GCS path in the form of gs://bucket/folder_path. At least one bucket and folder must be specified. Do not add a file prefix, only specify the folder path.")
 	rectify      = flag.Bool("rectify", false, "This indicates that this program should attempt to rectify BCDA FHIR so that it is valid R4 FHIR. This is needed for FHIR store upload.")
 
-	bcdaServerURL               = flag.String("bcda_server_url", "", "[Deprecated: prefer enable_generalized_bulk_import flag] The BCDA server to communicate with.")
-	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "Indicates if the generalized (non-BCDA) bulk fhir flags should be used to configure the fetch. If true, fhir_server_base_url and fhir_auth_url must be set. This overrides any of the bcda-specific flags.")
 	baseServerURL               = flag.String("fhir_server_base_url", "", "The full bulk FHIR server base URL to communicate with. For example, https://sandbox.bcda.cms.gov/api/v2")
 	authURL                     = flag.String("fhir_auth_url", "", "The full authentication or \"token\" URL to use for authenticating with the FHIR server. For example, https://sandbox.bcda.cms.gov/auth/token")
 	fhirAuthScopes              = flag.String("fhir_auth_scopes", "", "A comma separated list of auth scopes that should be requested when getting an auth token.")
 	groupID                     = flag.String("group_id", "", "The FHIR Group ID to export data for. If unset, defaults to exporting data for all patients.")
+	bcdaServerURL               = flag.String("bcda_server_url", "", "[Deprecated: prefer fhir_server_base_url and fhir_auth_url flags] The BCDA server to communicate with. If using this flag, do not use fhir_server_base_url and fhir_auth_url flags. For example, https://sandbox.bcda.cms.gov")
+	enableGeneralizedBulkImport = flag.Bool("enable_generalized_bulk_import", false, "[Deprecated: this flag is a noop and will be removed soon.]")
 
 	since                = flag.String("since", "", "The optional timestamp after which data should be fetched for. If not specified, fetches all available data. This should be a FHIR instant in the form of YYYY-MM-DDThh:mm:ss.sss+zz:zz.")
 	sinceFile            = flag.String("since_file", "", "Optional. If specified, the fetch program will read the latest since timestamp in this file to use when fetching data from the FHIR API. DO NOT run simultaneous fetch programs with the same since file. Once the fetch is completed successfully, fetch will write the FHIR API transaction timestamp for this fetch operation to the end of the file specified here, to be used in the subsequent run (to only fetch new data since the last successful run). The first time fetch is run with this flag set, it will fetch all data. If the file is of the form `gs://<GCS Bucket Name>/<Since File Name>` it will attempt to write the since file to the GCS bucket and file specified.")
@@ -267,8 +267,8 @@ func validateConfig(cfg mainWrapperConfig) error {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
 	}
 
-	if cfg.useGeneralizedBulkImport && (cfg.baseServerURL == "" || cfg.authURL == "") {
-		return errors.New("both fhir_server_base_url and fhir_auth_url must be set when enable_generalized_bulk_import is true")
+	if cfg.baseServerURL == "" || cfg.authURL == "" {
+		return errors.New("both fhir_server_base_url and fhir_auth_url must be set")
 	}
 
 	if cfg.enableFHIRStore && (cfg.fhirStoreGCPProject == "" ||
@@ -319,7 +319,6 @@ type mainWrapperConfig struct {
 	fhirStoreBatchUploadSize      int
 	fhirStoreEnableGCSBasedUpload bool
 	fhirStoreGCSBasedUploadBucket string
-	useGeneralizedBulkImport      bool
 	baseServerURL                 string
 	authURL                       string
 	fhirAuthScopes                []string
@@ -355,18 +354,21 @@ func buildMainWrapperConfig() mainWrapperConfig {
 		fhirStoreEnableGCSBasedUpload: *fhirStoreEnableGCSBasedUpload,
 		fhirStoreGCSBasedUploadBucket: *fhirStoreGCSBasedUploadBucket,
 
-		useGeneralizedBulkImport: *enableGeneralizedBulkImport,
-		baseServerURL:            *baseServerURL,
-		authURL:                  *authURL,
-		fhirAuthScopes:           strings.Split(*fhirAuthScopes, ","),
-		groupID:                  *groupID,
-		since:                    *since,
-		sinceFile:                *sinceFile,
-		noFailOnUploadErrors:     *noFailOnUploadErrors,
-		pendingJobURL:            *pendingJobURL,
+		baseServerURL:        *baseServerURL,
+		authURL:              *authURL,
+		fhirAuthScopes:       strings.Split(*fhirAuthScopes, ","),
+		groupID:              *groupID,
+		since:                *since,
+		sinceFile:            *sinceFile,
+		noFailOnUploadErrors: *noFailOnUploadErrors,
+		pendingJobURL:        *pendingJobURL,
 	}
 
-	if !c.useGeneralizedBulkImport && *bcdaServerURL != "" {
+	if *enableGeneralizedBulkImport != false {
+		log.Warning("enable_generalized_bulk_import flag is deprecated and no longer needed. It will soon be removed.")
+	}
+
+	if c.baseServerURL == "" && c.authURL == "" && *bcdaServerURL != "" {
 		c.baseServerURL = *bcdaServerURL + "/api/v2"
 		c.authURL = *bcdaServerURL + "/auth/token"
 	}

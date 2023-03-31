@@ -85,7 +85,6 @@ main:
                         echo $(./bulk_fhir_fetch
                          -client_id=${CLIENT_ID}
                          -client_secret=${CLIENT_SECRET}
-                         -enable_generalized_bulk_import=true
                          -fhir_server_base_url=${FHIR_SERVER_BASE_URL}
                          -fhir_auth_url=${FHIR_AUTH_URL}
                          -fhir_auth_scopes=${FHIR_AUTH_SCOPES}

@@ -59,7 +59,6 @@ to follow your organization's policies with respect to PHI.__
   ./bulk_fhir_fetch \
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
-    -enable_generalized_bulk_import=true \
     -fhir_server_base_url="https://sandbox.bcda.cms.gov/api/v2" \
     -fhir_auth_url="https://sandbox.bcda.cms.gov/auth/token" \
     -output_dir="/path/to/store/output/data" \
@@ -110,7 +109,6 @@ Do not run concurrent instances of fetch that use the same since file.
   ./bulk_fhir_fetch \
     -client_id=YOUR_CLIENT_ID \
     -client_secret=YOUR_SECRET \
-    -enable_generalized_bulk_import=true \
     -fhir_server_base_url="https://sandbox.bcda.cms.gov/api/v2" \
     -fhir_auth_url="https://sandbox.bcda.cms.gov/auth/token" \
     -output_dir="/path/to/store/output/data/" \

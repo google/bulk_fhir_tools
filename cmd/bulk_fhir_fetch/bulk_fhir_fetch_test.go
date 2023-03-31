@@ -282,7 +282,6 @@ func TestMainWrapper(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
-				useGeneralizedBulkImport:   true,
 				baseServerURL:              bcdaServer.URL + "/api/v2",
 				authURL:                    bcdaServer.URL + "/auth/token",
 				fhirStoreGCPProject:        gcpProject,
@@ -500,7 +499,6 @@ func TestMainWrapper_FirstTimeSinceFile(t *testing.T) {
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
-		useGeneralizedBulkImport:  true,
 		baseServerURL:             bcdaServer.URL + "/api/v2",
 		authURL:                   bcdaServer.URL + "/auth/token",
 		sinceFile:                 sinceFilePath,
@@ -593,7 +591,6 @@ func TestMainWrapper_GetJobStatusAuthRetry(t *testing.T) {
 		clientID:                  "id",
 		clientSecret:              "secret",
 		outputDir:                 outputDir,
-		useGeneralizedBulkImport:  true,
 		baseServerURL:             bcdaServer.URL + "/api/v2",
 		authURL:                   bcdaServer.URL + "/auth/token",
 		maxFHIRStoreUploadWorkers: 10,
@@ -707,7 +704,6 @@ func TestMainWrapper_GetDataRetry(t *testing.T) {
 				clientID:                  "id",
 				clientSecret:              "secret",
 				outputDir:                 outputDir,
-				useGeneralizedBulkImport:  true,
 				baseServerURL:             bcdaServer.URL + "/api/v2",
 				authURL:                   bcdaServer.URL + "/auth/token",
 				maxFHIRStoreUploadWorkers: 10,
@@ -815,7 +811,6 @@ func TestMainWrapper_BatchUploadSize(t *testing.T) {
 				clientID:                   "id",
 				clientSecret:               "secret",
 				outputDir:                  outputDir,
-				useGeneralizedBulkImport:   true,
 				baseServerURL:              bcdaServer.URL + "/api/v2",
 				authURL:                    bcdaServer.URL + "/auth/token",
 				fhirStoreGCPProject:        gcpProject,
@@ -937,7 +932,6 @@ func TestMainWrapper_GCSBasedUpload(t *testing.T) {
 		clientID:                      "id",
 		clientSecret:                  "secret",
 		outputDir:                     outputDir,
-		useGeneralizedBulkImport:      true,
 		baseServerURL:                 bcdaServer.URL + "/api/v2",
 		authURL:                       bcdaServer.URL + "/auth/token",
 		fhirStoreGCPProject:           gcpProject,
@@ -991,6 +985,8 @@ func TestMainWrapper_GCSBasedUpload_InvalidCfg(t *testing.T) {
 	cfg := mainWrapperConfig{
 		clientID:                      "id",
 		clientSecret:                  "secret",
+		baseServerURL:                 "url",
+		authURL:                       "url",
 		fhirStoreEnableGCSBasedUpload: true,
 		// fhirStoreGCSBasedUploadBucket not specified.
 	}
@@ -1070,14 +1066,13 @@ func TestMainWrapper_GeneralizedImport(t *testing.T) {
 	// performance improvement. A seperate test below tests that setting flags
 	// properly populates mainWrapperConfig.
 	cfg := mainWrapperConfig{
-		clientID:                 "id",
-		clientSecret:             "secret",
-		outputDir:                outputDir,
-		useGeneralizedBulkImport: true,
-		baseServerURL:            bulkFHIRBaseURL,
-		authURL:                  authURL,
-		fhirAuthScopes:           scopes,
-		rectify:                  true,
+		clientID:       "id",
+		clientSecret:   "secret",
+		outputDir:      outputDir,
+		baseServerURL:  bulkFHIRBaseURL,
+		authURL:        authURL,
+		fhirAuthScopes: scopes,
+		rectify:        true,
 	}
 
 	// Run mainWrapper:
@@ -1155,15 +1150,14 @@ func TestMainWrapper_GCSBasedSince(t *testing.T) {
 	// performance improvement. A seperate test below tests that setting flags
 	// properly populates mainWrapperConfig.
 	cfg := mainWrapperConfig{
-		gcsEndpoint:              gcsServer.URL(),
-		clientID:                 "id",
-		clientSecret:             "secret",
-		outputDir:                outputDir,
-		useGeneralizedBulkImport: true,
-		baseServerURL:            bcdaServer.URL + "/api/v2",
-		authURL:                  bcdaServer.URL + "/auth/token",
-		rectify:                  true,
-		sinceFile:                sinceFile,
+		gcsEndpoint:   gcsServer.URL(),
+		clientID:      "id",
+		clientSecret:  "secret",
+		outputDir:     outputDir,
+		baseServerURL: bcdaServer.URL + "/api/v2",
+		authURL:       bcdaServer.URL + "/auth/token",
+		rectify:       true,
+		sinceFile:     sinceFile,
 	}
 	// Run mainWrapper:
 	if err := mainWrapper(cfg); err != nil {
@@ -1261,14 +1255,13 @@ func TestMainWrapper_GCSoutputDir(t *testing.T) {
 			// performance improvement. A seperate test below tests that setting flags
 			// properly populates mainWrapperConfig.
 			cfg := mainWrapperConfig{
-				gcsEndpoint:              gcsServer.URL(),
-				clientID:                 "id",
-				clientSecret:             "secret",
-				outputDir:                tc.outputDir,
-				useGeneralizedBulkImport: true,
-				baseServerURL:            bcdaServer.URL + "/api/v2",
-				authURL:                  bcdaServer.URL + "/auth/token",
-				rectify:                  true,
+				gcsEndpoint:   gcsServer.URL(),
+				clientID:      "id",
+				clientSecret:  "secret",
+				outputDir:     tc.outputDir,
+				baseServerURL: bcdaServer.URL + "/api/v2",
+				authURL:       bcdaServer.URL + "/auth/token",
+				rectify:       true,
 			}
 			// Run mainWrapper:
 			if err := mainWrapper(cfg); err != nil {
@@ -1358,15 +1351,14 @@ func TestMainWrapper_GroupID(t *testing.T) {
 			// performance improvement. A separate test below tests that setting flags
 			// properly populates mainWrapperConfig.
 			cfg := mainWrapperConfig{
-				clientID:                 "id",
-				clientSecret:             "secret",
-				outputDir:                outputDir,
-				useGeneralizedBulkImport: true,
-				baseServerURL:            bulkFHIRBaseURL,
-				authURL:                  authURL,
-				fhirAuthScopes:           scopes,
-				rectify:                  true,
-				groupID:                  tc.groupID,
+				clientID:       "id",
+				clientSecret:   "secret",
+				outputDir:      outputDir,
+				baseServerURL:  bulkFHIRBaseURL,
+				authURL:        authURL,
+				fhirAuthScopes: scopes,
+				rectify:        true,
+				groupID:        tc.groupID,
 			}
 
 			// Run mainWrapper:
@@ -1442,7 +1434,6 @@ func TestBuildMainWrapperConfig(t *testing.T) {
 		fhirStoreBatchUploadSize:      10,
 		fhirStoreEnableGCSBasedUpload: true,
 		fhirStoreGCSBasedUploadBucket: "my-bucket",
-		useGeneralizedBulkImport:      true,
 		baseServerURL:                 "url",
 		authURL:                       "url",
 		fhirAuthScopes:                []string{"scope1", "scope2"},
