@@ -42,13 +42,27 @@ main:
                     call: sys.log
                     args:
                       data: ${"Bucket " + bucket + " already exists. Continuing."}
-                    next: logCreateBatchJob
+                    next: maybeSetSinceFile
               - unexpected_error:
                   raise: ${e}
     - logCreateBucket:
         call: sys.log
         args:
           data: ${"Created bucket " + bucket + "."}
+    - maybeSetSinceFile:
+        steps:
+          - setSinceFileDefault:
+              assign:
+                  - sinceFile: ""
+          - setSinceFile:
+              switch:
+              - condition: ${args.use_incremental_ingestion == "true"}
+                assign:
+                    - sinceFile: ${"gs://" + bucket + "/since_file.txt"}
+    - logSinceFile:
+        call: sys.log
+        args:
+          data: ${"Since File Location " + sinceFile}
     - logCreateBatchJob:
         call: sys.log
         args:
@@ -78,7 +92,7 @@ main:
                         echo $(apt-get -y install git-all) && \n
                         echo $(git clone https://github.com/google/medical_claims_tools.git) && \n
                         cd medical_claims_tools/ && \n
-                        echo $(ls) && \n
+                        go version && \n
                         echo building go file && \n
                         go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go && \n
                         echo $( ls .) && \n
@@ -96,7 +110,8 @@ main:
                          -fhir_store_id=${FHIR_STORE_ID}
                          -fhir_store_enable_gcs_based_upload=true
                          -fhir_store_gcs_based_upload_bucket=${BUCKET}
-                         -enable_gcp_logging=true)"
+                         -enable_gcp_logging=true
+                         -since_file=${SINCE_FILE})"
                     environment:
                       # These environment variables get passed to the batch job's VM and populate the above command.
                       # TODO(b/256011525): Replace with a place holders.
@@ -109,6 +124,7 @@ main:
                         FHIR_AUTH_URL: ${args.fhir_auth_url}
                         FHIR_AUTH_SCOPES: ${args.fhir_auth_scopes}
                         BUCKET: ${bucket}
+                        SINCE_FILE: ${sinceFile}
                       # TODO(b/256011525): Replace with a place holder telling the user how to set and get these values.
                       secret_variables:
                         CLIENT_ID : ${args.client_id_gcp_secret_id}

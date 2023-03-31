@@ -49,6 +49,11 @@ SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
 FHIR_SERVER_BASE_URL="https://sandbox.bcda.cms.gov/api/v2"
 FHIR_AUTH_URL="https://sandbox.bcda.cms.gov/auth/token"
 FHIR_AUTH_SCOPES=""  # Comma separated list, if needed.
+# If USE_INCREMENTAL_INGESTION="true" then a since file stored in GCS will be
+# used to attempt to fetch only new data since the last successful import. Set
+# this variable to "false" to turn off this behavior and fetch the full
+# dataset on each run.
+USE_INCREMENTAL_INGESTION="true"
 
 # GCP Flags
 PROJECT="YOUR_PROJECT"
@@ -98,6 +103,7 @@ gcloud scheduler jobs create http ${SCHEDULER_NAME} \
   \\\"fhir_store_id\\\": \\\"${FHIR_STORE_ID}\\\",
   \\\"client_id_gcp_secret_id\\\": \\\"${CLIENT_ID_GCP_SECRET_ID}\\\",
   \\\"client_secret_gcp_secret_id\\\": \\\"${CLIENT_SECRET_GCP_SECRET_ID}\\\",
+  \\\"use_incremental_ingestion\\\": \\\"${USE_INCREMENTAL_INGESTION}\\\",
   \\\"service_account\\\": \\\"${SERVICE_ACCT}\\\"
 }\"}"
 
