@@ -47,6 +47,10 @@ type logger struct {
 }
 
 func init() {
+	initDefaultLoggers()
+}
+
+func initDefaultLoggers() {
 	globalLogger = &logger{
 		infoLogger:    log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime),
 		warningLogger: log.New(os.Stdout, "WARNING: ", log.Ldate|log.Ltime),
@@ -135,12 +139,23 @@ func Fatalf(format string, v ...any) {
 // Close should be called before the program exits to flush any buffered log
 // entries to the GCP Logging service.
 func Close() error {
-	if globalLogger.client == nil {
-		return nil
+	if globalLogger.client != nil {
+		libraryAndSystemInfoLog("Logging library Close() called, GCP logging is terminating. Any logs made after this Close call will go to the task STDOUT/STDERR.")
+		libraryAndSystemInfoLog(fmt.Sprintf("GCP Logging client had %d errors\n", nErrs))
+		err := globalLogger.client.Close()
+		// Reset default STDOUT/STDERR loggers in case any logs called after Close().
+		initDefaultLoggers()
+		return err
 	}
-	log.Printf("GCP Logging client had %d errors\n", nErrs)
-	return globalLogger.client.Close()
+	return nil
 }
 
 // GetNErrs is for testing purposes. It should not be called until after the logger is closed.
 func GetNErrs() int { return nErrs }
+
+// libraryAndSystemInfoLog sends the input string to both the system log (log.Println) and this
+// logging library's Info log.
+func libraryAndSystemInfoLog(s string) {
+	log.Println(s)
+	Info(s)
+}

@@ -74,7 +74,13 @@ func TestGCPLogger(t *testing.T) {
 		{Text: "Jobs completed: 3\n", Sev: "INFO"},
 		{Text: "Number of times warned: 2\n", Sev: "WARNING"},
 		{Text: "Yikes an error!\n", Sev: "ERROR"},
-		{Text: "Failed counters: 4\n", Sev: "ERROR"}}
+		{Text: "Failed counters: 4\n", Sev: "ERROR"},
+		{Text: "GCP Logging client had 0 errors\n", Sev: "INFO"},
+		{
+			Text: "Logging library Close() called, GCP logging is terminating. Any logs made after this Close call will go to the task STDOUT/STDERR.\n",
+			Sev:  "INFO",
+		},
+	}
 
 	sortLogs := cmpopts.SortSlices(func(a, b lg) bool { return a.Text < b.Text })
 	if diff := cmp.Diff(want, got, sortLogs); diff != "" {
