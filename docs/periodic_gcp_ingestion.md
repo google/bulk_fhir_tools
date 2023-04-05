@@ -56,5 +56,4 @@ cron configurations. Saving the crontab file and exiting it should be sufficient
 to install this new job and register it to be run at the next interval. Note
 that the whole command for the cron configuration must be on one line.
 
-To upload to FHIR store, pass the GCP flags as described in the [README](../README.md#bulk_fhir_fetch-configuration-examples).
-
+To upload to FHIR store, pass the GCP flags as described in the [README](../README.md#bulk_fhir_fetch-configuration-examples). By default logs and metrics will be written to STDOUT, but we documented [how to send logs and monitoring to GCP](docs/logs_and_monitoring.md).

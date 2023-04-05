@@ -40,6 +40,8 @@ GCP VM](docs/periodic_gcp_ingestion.md)__ to periodically ingest FHIR data using
 
 We are working on a second way to run `bulk_fhir_fetch` using GCP Scheduler, Workflow, Batch and Secret Manager. Work in progress scripts can be found in `orchestration/`.
 
+By default logs and metrics will be written to STDOUT, but we documented [how to send logs and set up dashboards in GCP](docs/logs_and_monitoring.md).
+
 ## bulk_fhir_fetch Configuration Examples
 
 This section will detail common usage patterns for the `bulk_fhir_fetch` command
