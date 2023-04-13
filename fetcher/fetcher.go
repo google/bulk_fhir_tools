@@ -150,6 +150,7 @@ func (f *Fetcher) maybeStartJob(ctx context.Context) error {
 }
 
 func (f *Fetcher) waitForJob() (bulkfhir.JobStatus, error) {
+	start := time.Now()
 	var monitorResult *bulkfhir.MonitorResult
 	for monitorResult = range f.Client.MonitorJobStatus(f.JobURL, f.JobStatusPeriod, f.JobStatusTimeout) {
 		if monitorResult.Error != nil {
@@ -169,13 +170,14 @@ func (f *Fetcher) waitForJob() (bulkfhir.JobStatus, error) {
 		return jobStatus, fmt.Errorf("Bulk FHIR export job did not finish before the timeout of %s: %w", f.JobStatusTimeout, monitorResult.Error)
 	}
 
-	log.Infof("Bulk FHIR export job finished. Transaction Time: %s", fhir.ToFHIRInstant(jobStatus.TransactionTime))
+	log.Infof("Bulk FHIR export job finished. Transaction Time the Bulk FHIR server executed this export at: %s", fhir.ToFHIRInstant(jobStatus.TransactionTime))
+	log.Infof("The Bulk FHIR server took %s to return URLs after the initial Bulk Data Kick-off Request.", time.Since(start).Round(time.Second))
 	return jobStatus, nil
 }
 
 func (f *Fetcher) processData(ctx context.Context, jobStatus bulkfhir.JobStatus) error {
 	log.Infof("Starting data download and processing.")
-
+	start := time.Now()
 	for resourceType, urls := range jobStatus.ResultURLs {
 		for _, url := range urls {
 			start := time.Now()
@@ -191,6 +193,7 @@ func (f *Fetcher) processData(ctx context.Context, jobStatus bulkfhir.JobStatus)
 	if err := f.Pipeline.Finalize(ctx); err != nil {
 		return fmt.Errorf("failed to finalize output pipeline: %w", err)
 	}
+	log.Infof("It took %s to download, process and output the FHIR from all the ndjson URLs.", time.Since(start).Round(time.Second))
 	return nil
 }
 
