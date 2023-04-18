@@ -18,15 +18,19 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	"os"
 	"path/filepath"
 
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/gcs"
+	log "github.com/google/medical_claims_tools/internal/logger"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
+
+const numWorkers = 10
 
 type createFileFunc func(ctx context.Context, filename string) (io.WriteCloser, error)
 
@@ -35,34 +39,55 @@ type fileKey struct {
 	sourceURL    string
 }
 
+type fileWrapper struct {
+	*sync.Mutex
+	w io.WriteCloser
+}
+
 type ndjsonSink struct {
-	files      map[fileKey]io.WriteCloser
+	// mut is the mutex that must be held anytime ndjsonSink struct is modified.
+	mut *sync.Mutex
+
+	files      map[fileKey]*fileWrapper
 	fileIndex  map[cpb.ResourceTypeCode_Value]int
 	createFile createFileFunc
+
+	resourceChan chan ResourceWrapper
+	resourceWG   *sync.WaitGroup
 }
 
 // NewNDJSONSink creates a new Sink which writes resources to NDJSON files in
 // the given directory. Resources are grouped by the URL they were retrieved
 // from, with their file name containing the resource type and an incremented
 // index to distinguish them.
+//
+// It is threadsafe to call Write on this Sink from multiple goroutines.
 func NewNDJSONSink(ctx context.Context, directory string) (Sink, error) {
 	if stat, err := os.Stat(directory); err != nil {
 		return nil, fmt.Errorf("could not stat directory %q - %w", directory, err)
 	} else if !stat.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", directory)
 	}
-
 	// This closure captures the `directory` parameter.
 	createFile := func(ctx context.Context, filename string) (io.WriteCloser, error) {
 		filename = filepath.Join(directory, filename)
 		return os.Create(filename)
 	}
 
-	return &ndjsonSink{
-		files:      map[fileKey]io.WriteCloser{},
-		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
-		createFile: createFile,
-	}, nil
+	sink := &ndjsonSink{
+		mut:          &sync.Mutex{},
+		files:        map[fileKey]*fileWrapper{},
+		fileIndex:    map[cpb.ResourceTypeCode_Value]int{},
+		createFile:   createFile,
+		resourceChan: make(chan ResourceWrapper, 100),
+		resourceWG:   &sync.WaitGroup{},
+	}
+
+	for i := 0; i < numWorkers; i++ {
+		go sink.writeWorker()
+	}
+
+	return sink, nil
 }
 
 // NewGCSNDJSONSink returns a Sink which writes NDJSON files to GCS. See
@@ -84,23 +109,34 @@ func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory string) (
 		return gcsClient.GetFileWriter(ctx, gcs.JoinPath(directory, filename)), nil
 	}
 
-	return &ndjsonSink{
-		files:      map[fileKey]io.WriteCloser{},
-		fileIndex:  map[cpb.ResourceTypeCode_Value]int{},
-		createFile: createFile,
-	}, nil
+	sink := &ndjsonSink{
+		mut:          &sync.Mutex{},
+		files:        map[fileKey]*fileWrapper{},
+		fileIndex:    map[cpb.ResourceTypeCode_Value]int{},
+		createFile:   createFile,
+		resourceChan: make(chan ResourceWrapper, 100),
+		resourceWG:   &sync.WaitGroup{},
+	}
+
+	for i := 0; i < numWorkers; i++ {
+		go sink.writeWorker()
+	}
+	return sink, nil
 }
 
-func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (io.Writer, error) {
+func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (*fileWrapper, error) {
+	ns.mut.Lock()
+	defer ns.mut.Unlock()
 	key := fileKey{resource.Type(), resource.SourceURL()}
-	if w, ok := ns.files[key]; ok {
-		return w, nil
+	if fw, ok := ns.files[key]; ok {
+		return fw, nil
 	}
 
 	typeName, err := bulkfhir.ResourceTypeCodeToName(key.resourceType)
 	if err != nil {
 		return nil, err
 	}
+
 	idx := ns.fileIndex[key.resourceType]
 	ns.fileIndex[resource.Type()] = idx + 1
 	filename := fmt.Sprintf("%s_%d.ndjson", typeName, idx)
@@ -109,26 +145,60 @@ func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (
 	if err != nil {
 		return nil, err
 	}
-	ns.files[key] = w
-	return w, nil
+	ns.files[key] = &fileWrapper{
+		Mutex: &sync.Mutex{},
+		w:     w,
+	}
+
+	return ns.files[key], nil
 }
 
+// Write writes the resource to the ndjsonSink. For an ndjsonSink or gcsNDJSONSink, Write is
+// non-blocking (other than writing to a channel), and may be called from multiple goroutines on
+// a single sink instance.
 func (ns *ndjsonSink) Write(ctx context.Context, resource ResourceWrapper) error {
-	w, err := ns.getWriter(ctx, resource)
+	ns.resourceWG.Add(1)
+	ns.resourceChan <- resource
+	return nil
+}
+
+func (ns *ndjsonSink) writeResource(ctx context.Context, resource ResourceWrapper) error {
+	fw, err := ns.getWriter(ctx, resource)
 	if err != nil {
 		return err
 	}
+
+	fw.Lock()
+	defer fw.Unlock()
+
 	json, err := resource.JSON()
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(append(json, byte('\n')))
+	_, err = fw.w.Write(append(json, byte('\n')))
 	return err
 }
 
+func (ns *ndjsonSink) writeWorker() {
+	for r := range ns.resourceChan {
+		// TODO(b/277096473): plumb better context here.
+		if err := ns.writeResource(context.Background(), r); err != nil {
+			log.Errorf("error writing resource: %v", err)
+		}
+		ns.resourceWG.Done()
+	}
+}
+
 func (ns *ndjsonSink) Finalize(ctx context.Context) error {
-	for _, wc := range ns.files {
-		if err := wc.Close(); err != nil {
+	close(ns.resourceChan)
+	ns.resourceWG.Wait()
+
+	ns.mut.Lock()
+	defer ns.mut.Unlock()
+	for _, fw := range ns.files {
+		fw.Lock()
+		defer fw.Unlock()
+		if err := fw.w.Close(); err != nil {
 			return err
 		}
 	}
