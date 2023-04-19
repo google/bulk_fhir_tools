@@ -137,6 +137,8 @@ main:
               # TODO(b/256011525): Replace with a service account dedicated to Bulk FHIR fetch.
               serviceAccount:
                 email : ${args.service_account}
+              instances:
+                - instanceTemplate: ${args.instance_template_name}
         result: createAndRunBatchJobResponse
     - getJob:
         call: http.get

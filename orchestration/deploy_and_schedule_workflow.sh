@@ -67,13 +67,39 @@ FHIR_STORE_ID="YOUR_FHIR_STORE_ID"
 # something like:
 # projects/$PROJECT_NUMERIC_ID/secrets/BULK_FHIR_FETCH_CLIENT_ID/versions/1
 CLIENT_ID_GCP_SECRET_ID="projects/PROJECT_ID/secrets/CLIENT_ID_SECRET_NAME/versions/1"
-CLIENT_SECRET_GCP_SECRET_ID="projects/PROJECT_ID/secrets/CLIENT_SECRET_SECRET_NAME/versions/1"
+CLIENT_SECRET_GCP_SECRET_ID="projoects/PROJECT_ID/secrets/CLIENT_SECRET_SECRET_NAME/versions/1"
+
+# Static IP Flags
+# Only set these IF you need your import job to run with a static IP address,
+# for example with Medicare's BCDA in production (but not needed in sandbox).
+
+# Set this to the numeric static external IP address e.g. 10.100.100.10 that
+# you must reserve here:
+# https://console.cloud.google.com/networking/addresses/list.
+# Only set this if you need a static IP for the FHIR server you are interacting
+# with. Most servers don't require this, but some do like Medicare's BCDA in
+# production (but not for the sandbox).
+STATIC_IP=""
+# Set this to a name that you would like for your instance template.
+# Note: This MUST be an empty string if you don't want to use a static IP
+# instance template.
+STATIC_IP_INSTANCE_TEMPLATE_NAME=""
 
 # ============================================================================ #
 #                               End of Variables                               #
 # ============================================================================ #
 
 # GCloud Commands:
+
+# Setup the instance template if needed
+if [ "${STATIC_IP}" != "" ]; then
+  echo "Setting up Instance Template with Static IP."
+  echo "If this command fails you may need to delete the instance template or rename it:"
+  echo "gcloud compute instance-template delete ${STATIC_IP_INSTANCE_TEMPLATE_NAME}"
+
+  gcloud compute instance-templates create ${STATIC_IP_INSTANCE_TEMPLATE_NAME} \
+--network-interface="address=${STATIC_IP}"
+fi
 
 # Deploy the workflow:
 gcloud workflows deploy ${WORKFLOW_NAME} --source="bulk_fetch_workflow.yaml" --location=${LOCATION}
@@ -87,8 +113,8 @@ gcloud workflows deploy ${WORKFLOW_NAME} --source="bulk_fetch_workflow.yaml" --l
 # scheduler to replace it with a new one. To do so, uncomment the line below or
 # delete the scheduler in the GCP UI.
 # gcloud scheduler jobs delete ${SCHEDULER_NAME} --location=${LOCATION}
-echo "Creating scheduler. Note if scheduler already exists, it must be deleted first."
-gcloud scheduler jobs create http ${SCHEDULER_NAME} \
+echo "Creating scheduler."
+gcloud scheduler jobs update http ${SCHEDULER_NAME} \
     --schedule="${SCHEDULE_CRON}" \
     --uri="https://workflowexecutions.googleapis.com/v1/projects/${PROJECT}/locations/${LOCATION}/workflows/${WORKFLOW_NAME}/executions" \
     --time-zone="America/Los_Angeles" \
@@ -104,7 +130,8 @@ gcloud scheduler jobs create http ${SCHEDULER_NAME} \
   \\\"client_id_gcp_secret_id\\\": \\\"${CLIENT_ID_GCP_SECRET_ID}\\\",
   \\\"client_secret_gcp_secret_id\\\": \\\"${CLIENT_SECRET_GCP_SECRET_ID}\\\",
   \\\"use_incremental_ingestion\\\": \\\"${USE_INCREMENTAL_INGESTION}\\\",
-  \\\"service_account\\\": \\\"${SERVICE_ACCT}\\\"
+  \\\"service_account\\\": \\\"${SERVICE_ACCT}\\\",
+  \\\"instance_template_name\\\": \\\"${STATIC_IP_INSTANCE_TEMPLATE_NAME}\\\"
 }\"}"
 
 echo "Done."
