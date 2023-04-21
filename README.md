@@ -34,11 +34,16 @@ to follow your organization's policies with respect to PHI.__
 ## Set up bulk_fhir_fetch on GCP
 
 The `bulk_fhir_fetch` command line program uses the `bulkfhir/` client library
-to fetch FHIR data from a FHIR Bulk Data API. We documented __[how to set up a
-GCP VM](docs/periodic_gcp_ingestion.md)__ to periodically ingest FHIR data using
-`bulk_fhir_fetch`.
+to fetch FHIR data from a FHIR Bulk Data API.
 
-We are working on a second way to run `bulk_fhir_fetch` using GCP Scheduler, Workflow, Batch and Secret Manager. Work in progress scripts can be found in `orchestration/`.
+There are three high level ways to set up this tool:
+
+* __[On a GCP VM](docs/periodic_gcp_ingestion.md).__ This option is recommended
+  for initial testing and exploration.
+* With our __[Orchestration tooling](orchestration/README.md)__ that deploys on
+  Cloud Batch using Cloud workflows, Cloud Scheduler, and Cloud Secret Manager.
+  This is the recommended setup for production.
+* Locally on your machine by following the [Build](#build) instructions below.
 
 By default logs and metrics will be written to STDOUT, but we documented [how to send logs and set up dashboards in GCP](docs/logs_and_monitoring.md).
 

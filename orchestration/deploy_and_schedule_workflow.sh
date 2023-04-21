@@ -42,6 +42,9 @@ SCHEDULE_CRON='0 22 * * 1-5'
 # By default you can use the default compute engine service account, which looks
 # like $PROJECT_NUMERIC_ID-compute@developer.gserviceaccount.com but you may
 # wish to create a dedicated service account for this job as well.
+# This service account will also need permission to write to the FHIR Store,
+# read the Client ID and Client Secret GCP Secrets, and possibly to create
+# and read GCP buckets if USE_INCREMENTAL_INGESTION=true below.
 # Please update this value to the service account you would like to use.
 SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
 
