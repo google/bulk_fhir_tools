@@ -30,9 +30,9 @@ import (
 func TestLoadSynthea(t *testing.T) {
 	server := newTestSyntheaServer(t)
 	dataDir := t.TempDir()
-	syntheaDir := filepath.Join(dataDir, "group_id_synthea", "20230222T150000Z")
+	syntheaDir := filepath.Join(dataDir, syntheaGroupID, syntheaTimeStamp)
 
-	if err := load(server.URL, dataDir, 2); err != nil {
+	if err := loadSynthea(server.URL, dataDir, 2); err != nil {
 		t.Fatalf("Load returned an error: %v", err)
 	}
 

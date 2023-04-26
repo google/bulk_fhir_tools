@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -102,20 +103,35 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 	cases := []struct {
 		name             string
 		dataDir          string
+		groupName        string
 		numberResultURLs int
-		expectedFileData []byte
+		expectedFileData string
+		synthea          bool
 	}{
 		{
 			name:             "With custom data",
 			dataDir:          t.TempDir(),
+			groupName:        "group_id_a",
+			synthea:          false,
 			numberResultURLs: 1,
-			expectedFileData: []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`),
+			expectedFileData: `{"resourceType":"Patient","id":"PatientIDTest"}`,
 		},
 		{
 			name:             "With default data",
 			dataDir:          "",
+			groupName:        "group_id_a",
+			synthea:          false,
 			numberResultURLs: 8,
-			expectedFileData: []byte(`{"resourceType":"Patient","id":"1","extension":[{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-race","extension":[{"url":"text","valueString":"Unknown"}]},{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity","extension":[{"url":"text","valueString":"Unknown"}]}],"name":[{"family":"OldFamilyName","given":["OldGiveName"]}],"gender":"male","communication":[{"language":{"text":"English"}}],"managingOrganization":{"display":"EXAMPLE_ORGANIZATION"}}`),
+			expectedFileData: `{"resourceType":"Patient","id":"1","extension":[{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-race","extension":[{"url":"text","valueString":"Unknown"}]},{"url":"http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity","extension":[{"url":"text","valueString":"Unknown"}]}],"name":[{"family":"OldFamilyName","given":["OldGiveName"]}],"gender":"male","communication":[{"language":{"text":"English"}}],"managingOrganization":{"display":"EXAMPLE_ORGANIZATION"}}`,
+		},
+		{
+			name:             "With synthea data",
+			dataDir:          t.TempDir(),
+			groupName:        syntheaGroupID,
+			synthea:          true,
+			numberResultURLs: 4,
+			expectedFileData: `{"resourceType":"Patient","id":"1"}
+{"resourceType":"Patient","id":"2"}`,
 		},
 	}
 	for _, tc := range cases {
@@ -123,24 +139,23 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			file1Name := "Patient_0.ndjson"
-			file1Data := []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`)
-
 			clientID := "clientID"
 			clientSecret := "clientSecret"
-			groupName := "group_id_a"
-			dirName := "20180917T175311Z"
 
-			if tc.dataDir != "" {
-				if err := os.MkdirAll(filepath.Join(tc.dataDir, groupName, dirName), 0755); err != nil {
+			if tc.dataDir != "" && !tc.synthea {
+				file1Name := "Patient_0.ndjson"
+				file1Data := []byte(`{"resourceType":"Patient","id":"PatientIDTest"}`)
+				dirName := "20180917T175311Z"
+
+				if err := os.MkdirAll(filepath.Join(tc.dataDir, tc.groupName, dirName), 0755); err != nil {
 					t.Fatalf("Unable to create test directory: %v", err)
 				}
-				if err := os.WriteFile(filepath.Join(tc.dataDir, groupName, dirName, file1Name), file1Data, 0644); err != nil {
+				if err := os.WriteFile(filepath.Join(tc.dataDir, tc.groupName, dirName, file1Name), file1Data, 0644); err != nil {
 					t.Fatalf("Unable to write test setup data: %v", err)
 				}
 			}
 
-			baseURL := runTestServer(t, tc.dataDir, clientID, clientSecret)
+			baseURL := runTestServer(t, tc.dataDir, clientID, clientSecret, tc.synthea)
 
 			auth, err := bulkfhir.NewHTTPBasicOAuthAuthenticator(clientID, clientSecret, fmt.Sprintf("%s/token", baseURL), nil)
 			if err != nil {
@@ -153,7 +168,7 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 
 			// Start export:
 			jobURL, err := c.StartBulkDataExport([]cpb.ResourceTypeCode_Value{
-				cpb.ResourceTypeCode_PATIENT}, time.Time{}, groupName)
+				cpb.ResourceTypeCode_PATIENT}, time.Time{}, tc.groupName)
 			if err != nil {
 				t.Fatalf("Error starting bulk fhir export: %v", err)
 			}
@@ -166,8 +181,12 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 				}
 			}
 
-			if len(result.Status.ResultURLs) != tc.numberResultURLs {
-				t.Fatalf("unexpected number of result resources. got: %v, want: %v", len(result.Status.ResultURLs), tc.numberResultURLs)
+			gotNumberResultURLs := 0
+			for _, urls := range result.Status.ResultURLs {
+				gotNumberResultURLs += len(urls)
+			}
+			if gotNumberResultURLs != tc.numberResultURLs {
+				t.Fatalf("unexpected number of result resources. got: %v, want: %v", gotNumberResultURLs, tc.numberResultURLs)
 			}
 			if len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]) != 1 {
 				t.Fatalf("unexpected number of Patient URLs. got: %v, want: %v", len(result.Status.ResultURLs[cpb.ResourceTypeCode_PATIENT]), 1)
@@ -185,8 +204,8 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 				t.Fatalf("Error downloading data: %v", err)
 			}
 
-			if !cmp.Equal(gotData, tc.expectedFileData) {
-				t.Errorf("Unexpected Patient data. got: %v, want: %v", gotData, tc.expectedFileData)
+			if diff := cmp.Diff(tc.expectedFileData, string(gotData)); diff != "" {
+				t.Errorf("Unexpected Patient data in %s. diff (-want +got):\n%s", tc.name, diff)
 			}
 		})
 	}
@@ -194,7 +213,7 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 
 func TestTestServer_Hello(t *testing.T) {
 	t.Parallel()
-	serverURL := runTestServer(t, t.TempDir(), "", "")
+	serverURL := runTestServer(t, t.TempDir(), "", "", false)
 	t.Logf(serverURL)
 	resp, err := http.Get(serverURL + "/hello")
 	if err != nil {
@@ -210,9 +229,16 @@ func TestTestServer_Hello(t *testing.T) {
 	}
 }
 
-func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret string) string {
+func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret string, synthea bool) string {
+	if synthea {
+		server := newTestSyntheaServer(t)
+		if err := loadSynthea(server.URL, dataDir, 2); err != nil {
+			log.Fatalf("loading the synthea failed: %v", err)
+		}
+		log.Printf("Successfully loaded Synthea synthetic FHIR data into %s", filepath.Join(dataDir, syntheaGroupID, syntheaTimeStamp))
+	}
+
 	testServer := &server{
-		dataDir:           dataDir,
 		jobs:              map[string]*exportJob{},
 		validClientID:     validClientID,
 		validClientSecret: validClientSecret,
