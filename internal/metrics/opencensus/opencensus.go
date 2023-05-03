@@ -23,6 +23,8 @@ import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 var (
@@ -42,7 +44,7 @@ type Counter struct {
 // the same order specified in Init. TagKeys should be a closed set of values,
 // for example FHIR Resource type. Please see the OpenCensus documentation for
 // details. Counters should not store any PHI.
-func (c *Counter) Init(name, description, unit string, tagKeys ...string) error {
+func (c *Counter) Init(name, description, unit string, aggr aggregation.Aggregation, tagKeys ...string) error {
 	c.measure = stats.Int64(name, description, unit)
 
 	for _, k := range tagKeys {
@@ -56,9 +58,14 @@ func (c *Counter) Init(name, description, unit string, tagKeys ...string) error 
 		Name:        name,
 		Measure:     c.measure,
 		Description: description,
-		Aggregation: view.Count(),
 		TagKeys:     c.tagKeys,
 	}
+	if aggr == aggregation.LastValueInGCPMaxValueInLocal {
+		v.Aggregation = view.LastValue()
+	} else {
+		v.Aggregation = view.Count()
+	}
+
 	if err := view.Register(v); err != nil {
 		return err
 	}

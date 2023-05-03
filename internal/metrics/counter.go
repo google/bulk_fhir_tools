@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics/fake"
 	"github.com/google/medical_claims_tools/internal/metrics/local"
 	"github.com/google/medical_claims_tools/internal/metrics/opencensus"
@@ -34,6 +35,7 @@ type Counter struct {
 	name        string
 	description string
 	unit        string
+	aggregation aggregation.Aggregation
 	tagKeys     []string
 }
 
@@ -43,14 +45,14 @@ type Counter struct {
 // values, for example FHIR Resource type. InitAndExportGCP and NewCounter can
 // be called in any order. Subsequent calls to NewCounter with the same name
 // will be ignored and log a warning. Counters should not store any PHI.
-func NewCounter(name, description, unit string, tagKeys ...string) *Counter {
+func NewCounter(name, description, unit string, aggregation aggregation.Aggregation, tagKeys ...string) *Counter {
 	globalMu.Lock()
 	defer globalMu.Unlock()
 	if c, ok := counterRegistry[name]; ok {
 		log.Warning("NewCounter is being called multiple times with the same name. Name should be unique between counters.")
 		return c
 	}
-	counter := Counter{name: name, description: description, unit: unit, tagKeys: tagKeys, once: &sync.Once{}}
+	counter := Counter{name: name, description: description, unit: unit, aggregation: aggregation, tagKeys: tagKeys, once: &sync.Once{}}
 	counterRegistry[name] = &counter
 	return &counter
 }
@@ -83,7 +85,7 @@ func (c *Counter) initialize() error {
 		} else {
 			err = errors.New("in metrics.NewCounter, implementation is set to an unknown value, this should never happen")
 		}
-		c.counterImp.Init(c.name, c.description, c.unit, c.tagKeys...)
+		c.counterImp.Init(c.name, c.description, c.unit, c.aggregation, c.tagKeys...)
 	})
 	return err
 }

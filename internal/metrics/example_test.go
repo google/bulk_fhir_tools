@@ -16,6 +16,8 @@ package metrics
 
 import (
 	"context"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 func ExampleNewCounter() {
@@ -24,8 +26,8 @@ func ExampleNewCounter() {
 	// the metrics upon call to CloseAll().
 	// InitAndExportGCP() will write the metrics to GCP.
 
-	// Counters keep a count for a particular set of tag values.
-	c := NewCounter("ExampleCounterName", "Counter Description", "1", "FHIRResource", "FHIRVersion")
+	// Counters with aggregation type Count keep a count for a particular set of tag values.
+	c := NewCounter("ExampleCounterName", "Counter Description", "1", aggregation.Count, "FHIRResource", "FHIRVersion")
 
 	// NewCounter and Init (ex InitAndExportGCP) can be called in any order.
 	// Init must be called before the first call to Record unless the default local

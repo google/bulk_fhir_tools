@@ -18,10 +18,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 func TestInitAfterRecordError(t *testing.T) {
-	c := NewCounter("TestInitAfterRecordError", "Counter Description", "ms")
+	c := NewCounter("TestInitAfterRecordError", "Counter Description", "ms", aggregation.Count)
 	c.Record(context.Background(), 1)
 	gotErr := InitAndExportGCP("")
 	if !errors.Is(gotErr, errInitAfterRecord) {

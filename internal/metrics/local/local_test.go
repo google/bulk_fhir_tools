@@ -19,11 +19,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 func TestCounterWithTags(t *testing.T) {
 	c := &Counter{}
-	if err := c.Init("fhir-resource-counter", "A descriptive Description", "1", "FHIRResource", "FHIRVersion"); err != nil {
+	if err := c.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.Count, "FHIRResource", "FHIRVersion"); err != nil {
 		t.Errorf("counter.Init() %v", err)
 	}
 	if err := c.Record(context.Background(), 1, "OBSERVATION", "R4"); err != nil {
@@ -46,7 +47,7 @@ func TestCounterWithTags(t *testing.T) {
 
 func TestCounterWithoutTags(t *testing.T) {
 	cNoTags := &Counter{}
-	if err := cNoTags.Init("fhir-resource-counter", "A descriptive Description", "1"); err != nil {
+	if err := cNoTags.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.Count); err != nil {
 		t.Errorf("counter.Init() %v", err)
 	}
 	if err := cNoTags.Record(context.Background(), 3); err != nil {
@@ -60,13 +61,39 @@ func TestCounterWithoutTags(t *testing.T) {
 	}
 }
 
+func TestCounterMaxValueAggregation(t *testing.T) {
+	c := &Counter{}
+	if err := c.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.LastValueInGCPMaxValueInLocal, "FHIRResource", "FHIRVersion"); err != nil {
+		t.Errorf("counter.Init() %v", err)
+	}
+	if err := c.Record(context.Background(), 1, "OBSERVATION", "R4"); err != nil {
+		t.Errorf("counter.Record(%q, %q) %v", "OBSERVATION", "R4", err)
+	}
+	if err := c.Record(context.Background(), 18, "OBSERVATION", "R4"); err != nil {
+		t.Errorf("counter.Record(%q, %q) %v", "OBSERVATION", "R4", err)
+	}
+	if err := c.Record(context.Background(), 3, "OBSERVATION", "R4"); err != nil {
+		t.Errorf("counter.Record(%q, %q) %v", "OBSERVATION", "R4", err)
+	}
+	if err := c.Record(context.Background(), 1, "OBSERVATION", "STU3"); err != nil {
+		t.Errorf("counter.Record(%q, %q) %v", "OBSERVATION", "STU3", err)
+	}
+	c.Close()
+	got := c.MaybeGetResult()
+	want := map[string]int64{"OBSERVATION-R4": 18, "OBSERVATION-STU3": 1}
+
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("CloseAndGetResults() returned unexpected diff (-want +got):\n%s", diff)
+	}
+}
+
 func TestCounterErrors(t *testing.T) {
 	c := &Counter{}
 	if got, want := c.Record(context.Background(), 1), errInit; got != want {
 		t.Errorf("counter.Record() want error %v; got %v", want, got)
 	}
 
-	c.Init("fhir-resource-counter", "A descriptive Description", "1", "FhirResource")
+	c.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.Count, "FhirResource")
 	if got, want := c.Record(context.Background(), 1, "OBSERVATION", "ExtraTag"), errMatchingTags; got != want {
 		t.Errorf("counter.Record() want error %v; got %v", want, got)
 	}

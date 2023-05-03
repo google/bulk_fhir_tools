@@ -26,11 +26,12 @@ import (
 
 	healthcare "google.golang.org/api/healthcare/v1"
 	"google.golang.org/api/option"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics"
 )
 
-var fhirStoreUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-upload-counter", "Count of uploads to FHIR Store by FHIR Resource Type and HTTP Status.", "1", "FHIRResourceType", "HTTPStatus")
-var fhirStoreBatchUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-counter", "Count of FHIR Bundles uploaded to FHIR Store by HTTP Status.", "1", "HTTPStatus")
+var fhirStoreUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-upload-counter", "Count of uploads to FHIR Store by FHIR Resource Type and HTTP Status.", "1", aggregation.Count, "FHIRResourceType", "HTTPStatus")
+var fhirStoreBatchUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-counter", "Count of FHIR Bundles uploaded to FHIR Store by HTTP Status.", "1", aggregation.Count, "HTTPStatus")
 
 // DefaultHealthcareEndpoint represents the default cloud healthcare API
 // endpoint. This should be passed to UploadResource, unless in a test

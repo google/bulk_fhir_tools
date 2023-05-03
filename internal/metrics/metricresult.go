@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 // CounterResult holds the results for the counter. It can be printed using String().
@@ -28,13 +30,21 @@ type CounterResult struct {
 	Name        string
 	Description string
 	Unit        string
+	Aggregation aggregation.Aggregation
 	TagKeys     []string
 }
 
 // String returns a printable result. The result string is stable. There is no
 // randomness in the ordering the results are printed.
 func (c *CounterResult) String() string {
-	header := fmt.Sprintf("\nName: %s\n%s\nUnits: %s\n", c.Name, c.Description, c.Unit)
+	aggrDescription := ""
+	if c.Aggregation == aggregation.LastValueInGCPMaxValueInLocal {
+		aggrDescription = "Max value recorded by the metric (for counters logged locally)."
+	} else {
+		aggrDescription = "Total sum of values recorded by this metric (for counters logged locally)."
+	}
+
+	header := fmt.Sprintf("\nName: %s\n%s\nUnits: %s\nAggregation Type: %s\n", c.Name, c.Description, c.Unit, aggrDescription)
 	body := make([]string, 0)
 
 	if len(c.Count) == 0 {

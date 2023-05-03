@@ -18,13 +18,15 @@ package fake
 
 import (
 	"context"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 // Counter is a no-op implementation of a counter for tests.
 type Counter struct{}
 
 // Init is a no-op implementation for tests.
-func (c *Counter) Init(name, description, unit string, tagKeys ...string) error {
+func (c *Counter) Init(name, description, unit string, aggregation aggregation.Aggregation, tagKeys ...string) error {
 	return nil
 }
 

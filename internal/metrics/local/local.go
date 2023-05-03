@@ -22,6 +22,8 @@ import (
 	"errors"
 	"strings"
 	"sync"
+
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 var (
@@ -33,6 +35,7 @@ var (
 type Counter struct {
 	count         map[string]int64
 	name          string
+	aggregation   aggregation.Aggregation
 	tagKeys       []string
 	initialized   bool
 	countMu       sync.Mutex
@@ -50,12 +53,13 @@ type counterData struct {
 // counter. Subsequent calls to Record() should provide the TagValues to the
 // TagKeys in the same order specified in Init. TagKeys should be a closed set
 // of values, for example FHIR Resource type. Counters should not store any PHI.
-func (c *Counter) Init(name, description, unit string, tagKeys ...string) error {
+func (c *Counter) Init(name, description, unit string, aggr aggregation.Aggregation, tagKeys ...string) error {
 	c.once.Do(func() {
 		c.incrementChan = make(chan counterData, 50)
 		c.wg = &sync.WaitGroup{}
 		c.name = name
 		c.tagKeys = tagKeys
+		c.aggregation = aggr
 		c.count = make(map[string]int64)
 		c.initialized = true
 		go c.countWorker()
@@ -108,7 +112,13 @@ func (c *Counter) Close() {
 func (c *Counter) countWorker() {
 	for delta := range c.incrementChan {
 		c.countMu.Lock()
-		c.count[delta.tagValues] += delta.val
+		if c.aggregation == aggregation.LastValueInGCPMaxValueInLocal {
+			if c.count[delta.tagValues] < delta.val {
+				c.count[delta.tagValues] = delta.val
+			}
+		} else {
+			c.count[delta.tagValues] += delta.val
+		}
 		c.countMu.Unlock()
 		c.wg.Done()
 	}

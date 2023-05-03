@@ -22,6 +22,7 @@ import (
 	"go.opencensus.io/metric/metricdata"
 	"go.opencensus.io/metric/metricexport"
 	metrictest "go.opencensus.io/metric/test"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 type counter interface {
@@ -36,7 +37,7 @@ type latency interface {
 
 func TestCounter(t *testing.T) {
 	c := &Counter{}
-	if err := c.Init("fhir-resource-counter", "A descriptive Description", "1", "FhirResource"); err != nil {
+	if err := c.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.Count, "FhirResource"); err != nil {
 		t.Errorf("counter.Init() %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestCounterErrors(t *testing.T) {
 		t.Errorf("latency.Record() want error %v; got %v", want, got)
 	}
 
-	c.Init("fhir-resource-counter", "A descriptive Description", "1", "FhirResource")
+	c.Init("fhir-resource-counter", "A descriptive Description", "1", aggregation.Count, "FhirResource")
 	if got, want := c.Record(context.Background(), 1, "OBSERVATION", "ExtraTag"), errMatchingTags; got != want {
 		t.Errorf("latency.Record() want error %v; got %v", want, got)
 	}

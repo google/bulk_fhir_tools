@@ -20,10 +20,11 @@ import (
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	dpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics"
 )
 
-var fhirRectifyCounter *metrics.Counter = metrics.NewCounter("fhir-rectify-counter", "Count of FHIR Resources that do not meet the base R4 FHIR expectations and need to be rectified. The counter is tagged by the FHIR Resource type ex) OBSERVATION and type of rectification ex) MISSING_PROVIDER_REFERENCE.", "1", "FHIRResourceType", "RectificationType")
+var fhirRectifyCounter *metrics.Counter = metrics.NewCounter("fhir-rectify-counter", "Count of FHIR Resources that do not meet the base R4 FHIR expectations and need to be rectified. The counter is tagged by the FHIR Resource type ex) OBSERVATION and type of rectification ex) MISSING_PROVIDER_REFERENCE.", "1", aggregation.Count, "FHIRResourceType", "RectificationType")
 
 type bcdaRectifyProcessor struct {
 	BaseProcessor

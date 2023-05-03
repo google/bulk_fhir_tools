@@ -29,6 +29,7 @@ import (
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/gcs"
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -36,7 +37,7 @@ import (
 	drpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/document_reference_go_proto"
 )
 
-var documentRetrievalCounter *metrics.Counter = metrics.NewCounter("document-retrieval-counter", "Count by HTTP Status when retrieving DocumentReference resources.", "1", "HTTPStatus")
+var documentRetrievalCounter *metrics.Counter = metrics.NewCounter("document-retrieval-counter", "Count by HTTP Status when retrieving DocumentReference resources.", "1", aggregation.Count, "HTTPStatus")
 
 type fileWriter interface {
 	writeFile(ctx context.Context, filename string, data []byte) (string, error)

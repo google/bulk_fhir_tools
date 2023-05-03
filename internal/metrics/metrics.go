@@ -27,6 +27,7 @@ import (
 
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 // implementation should be set by Init and is used to decide which Close to
@@ -172,7 +173,7 @@ func GetResults() (map[string]CounterResult, map[string]LatencyResult, error) {
 
 	counterRes := make(map[string]CounterResult)
 	for _, c := range counterRegistry {
-		res := CounterResult{Count: c.counterImp.MaybeGetResult(), Name: c.name, Description: c.description, Unit: c.unit, TagKeys: c.tagKeys}
+		res := CounterResult{Count: c.counterImp.MaybeGetResult(), Name: c.name, Description: c.description, Unit: c.unit, Aggregation: c.aggregation, TagKeys: c.tagKeys}
 		counterRes[c.name] = res
 	}
 
@@ -203,7 +204,7 @@ type counterInterface interface {
 	// the same order specified in Init. TagKeys should be a closed set of values,
 	// for example FHIR Resource type. Please see the OpenCensus documentation for
 	// details. Counters should not store any PHI.
-	Init(name, description, unit string, tagKeys ...string) error
+	Init(name, description, unit string, aggregation aggregation.Aggregation, tagKeys ...string) error
 
 	// Record adds val to the counter. The tagValues must match the tagKeys provided
 	// in the call to Init. Init must be called before the first call to Record.
@@ -219,6 +220,7 @@ type counterInterface interface {
 	// Close the counter.
 	Close()
 }
+
 type latencyInterface interface {
 	// Init should be called once before the Record method is called on this
 	// metric. TagKeys are labels used for filtering the monitoring graphs.

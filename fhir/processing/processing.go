@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/fhir/go/fhirversion"
 	"github.com/google/fhir/go/jsonformat"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
@@ -90,8 +91,8 @@ func (rw *resourceWrapper) JSON() ([]byte, error) {
 // Verify resourceWrapper satisfies the ResourceWrapper interface.
 var _ ResourceWrapper = &resourceWrapper{}
 
-var operationOutcomeCounter *metrics.Counter = metrics.NewCounter("operation-outcome-counter", "Count of the severity and error code of the operation outcomes returned from the bulk fhir server.", "1", "Severity", "Code")
-var fhirResourceCounter *metrics.Counter = metrics.NewCounter("fhir-resource-counter", "Count of FHIR Resources processed by Bulk FHIR Fetch run. The counter is tagged by the FHIR Resource type ex) OBSERVATION.", "1", "FHIRResourceType")
+var operationOutcomeCounter *metrics.Counter = metrics.NewCounter("operation-outcome-counter", "Count of the severity and error code of the operation outcomes returned from the bulk fhir server.", "1", aggregation.Count, "Severity", "Code")
+var fhirResourceCounter *metrics.Counter = metrics.NewCounter("fhir-resource-counter", "Count of FHIR Resources processed by Bulk FHIR Fetch run. The counter is tagged by the FHIR Resource type ex) OBSERVATION.", "1", aggregation.Count, "FHIRResourceType")
 
 // OutputFunction is the signature of both Processor.Process and Sink.Write.
 type OutputFunction func(ctx context.Context, resource ResourceWrapper) error

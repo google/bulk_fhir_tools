@@ -19,21 +19,26 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 func TestCounterLocal(t *testing.T) {
 	ResetAll()
 
-	cTags := NewCounter("CounterTags", "Counter Description", "1", "FHIRResource")
+	cTags := NewCounter("CounterTags", "Counter Description", "1", aggregation.Count, "FHIRResource")
 	cTags.Record(context.Background(), 1, "OBSERVATION")
 	cTags.Record(context.Background(), 1, "OBSERVATION")
 	cTags.Record(context.Background(), 3, "ENCOUNTER")
 
-	cNoTags := NewCounter("CounterNoTags", "Counter Description", "1")
+	cNoTags := NewCounter("CounterNoTags", "Counter Description", "1", aggregation.Count)
 	cNoTags.Record(context.Background(), 1)
 	cNoTags.Record(context.Background(), 3)
 
-	_ = NewCounter("CounterCloseWithNoRecord", "Counter Description", "1", "FHIRResource")
+	cMaxValue := NewCounter("CounterMaxValue", "Counter Description", "1", aggregation.LastValueInGCPMaxValueInLocal)
+	cMaxValue.Record(context.Background(), 8)
+	cMaxValue.Record(context.Background(), 2)
+
+	_ = NewCounter("CounterCloseWithNoRecord", "Counter Description", "1", aggregation.Count, "FHIRResource")
 
 	wantCount := map[string]CounterResult{
 		"CounterCloseWithNoRecord": {
@@ -41,19 +46,29 @@ func TestCounterLocal(t *testing.T) {
 			Name:        "CounterCloseWithNoRecord",
 			Description: "Counter Description",
 			Unit:        "1",
+			Aggregation: aggregation.Count,
 			TagKeys:     []string{"FHIRResource"},
+		},
+		"CounterMaxValue": {
+			Count:       map[string]int64{"CounterMaxValue": 8},
+			Name:        "CounterMaxValue",
+			Description: "Counter Description",
+			Unit:        "1",
+			Aggregation: aggregation.LastValueInGCPMaxValueInLocal,
 		},
 		"CounterNoTags": {
 			Count:       map[string]int64{"CounterNoTags": 4},
 			Name:        "CounterNoTags",
 			Description: "Counter Description",
 			Unit:        "1",
+			Aggregation: aggregation.Count,
 		},
 		"CounterTags": {
 			Count:       map[string]int64{"ENCOUNTER": 3, "OBSERVATION": 2},
 			Name:        "CounterTags",
 			Description: "Counter Description",
 			Unit:        "1",
+			Aggregation: aggregation.Count,
 			TagKeys:     []string{"FHIRResource"},
 		},
 	}

@@ -18,11 +18,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 )
 
 func TestCounterResultWithTag(t *testing.T) {
-	c := CounterResult{Count: map[string]int64{"OBSERVATION": 4, "ENCOUNTER": 18}, Name: "CounterName", Description: "Descriptive Description", Unit: "1", TagKeys: []string{"FHIRResource"}}
-	want := "\nName: CounterName\nDescriptive Description\nUnits: 1\nENCOUNTER: 18\nOBSERVATION: 4\n"
+	c := CounterResult{Count: map[string]int64{"OBSERVATION": 4, "ENCOUNTER": 18}, Name: "CounterName", Description: "Descriptive Description", Unit: "1", Aggregation: aggregation.LastValueInGCPMaxValueInLocal, TagKeys: []string{"FHIRResource"}}
+	want := "\nName: CounterName\nDescriptive Description\nUnits: 1\nAggregation Type: Max value recorded by the metric (for counters logged locally).\nENCOUNTER: 18\nOBSERVATION: 4\n"
 	got := c.String()
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Counter.String() return unexpected diff (-want +got): \n%s", diff)
@@ -30,8 +31,8 @@ func TestCounterResultWithTag(t *testing.T) {
 }
 
 func TestCounterResultWithoutTag(t *testing.T) {
-	c := CounterResult{Count: map[string]int64{"CounterName": 4}, Name: "CounterName", Description: "Descriptive Description", Unit: "1", TagKeys: []string{}}
-	want := "\nName: CounterName\nDescriptive Description\nUnits: 1\nCount: 4\n"
+	c := CounterResult{Count: map[string]int64{"CounterName": 4}, Name: "CounterName", Description: "Descriptive Description", Unit: "1", Aggregation: aggregation.Count, TagKeys: []string{}}
+	want := "\nName: CounterName\nDescriptive Description\nUnits: 1\nAggregation Type: Total sum of values recorded by this metric (for counters logged locally).\nCount: 4\n"
 	got := c.String()
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Counter.String() return unexpected diff (-want +got): \n%s", diff)
