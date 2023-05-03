@@ -26,11 +26,15 @@ import (
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/gcs"
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/medical_claims_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )
 
 const numWorkers = 10
+
+var ndjsonChannelSizeCounter *metrics.Counter = metrics.NewCounter("ndjson-store-channel-size-counter", "The number of unread FHIR Resources that are waiting in the channel to be uploaded to GCS or saved locally as ndjson.", "1", aggregation.LastValueInGCPMaxValueInLocal)
 
 type createFileFunc func(ctx context.Context, filename string) (io.WriteCloser, error)
 
@@ -159,6 +163,9 @@ func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (
 func (ns *ndjsonSink) Write(ctx context.Context, resource ResourceWrapper) error {
 	ns.resourceWG.Add(1)
 	ns.resourceChan <- resource
+	if err := ndjsonChannelSizeCounter.Record(ctx, int64(len(ns.resourceChan))); err != nil {
+		return err
+	}
 	return nil
 }
 

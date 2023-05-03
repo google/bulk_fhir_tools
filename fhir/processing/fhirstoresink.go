@@ -29,15 +29,19 @@ import (
 	"github.com/google/medical_claims_tools/fhir"
 	"github.com/google/medical_claims_tools/fhirstore"
 	log "github.com/google/medical_claims_tools/internal/logger"
+	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/medical_claims_tools/internal/metrics"
 )
 
 // ErrUploadFailures is returned (wrapped) when uploads to FHIR Store have
 // failed. It is primarily used to detect this specific failure in tests.
 var ErrUploadFailures = errors.New("non-zero FHIR store upload errors")
 
-// defaultBatchSize is the deafult batch size for FHIR store uploads in batch
+// defaultBatchSize is the default batch size for FHIR store uploads in batch
 // mode.
 const defaultBatchSize = 5
+
+var fhirStoreChannelSizeCounter *metrics.Counter = metrics.NewCounter("fhir-store-channel-size-counter", "The number of unread FHIR Resources that are waiting in the channel to be uploaded to FHIR Store.", "1", aggregation.LastValueInGCPMaxValueInLocal)
 
 // directFHIRStoreSink implements the processing.Sink interface to upload
 // resources directly to FHIR store, either individually or batched.
@@ -82,6 +86,9 @@ func (dfss *directFHIRStoreSink) Write(ctx context.Context, resource ResourceWra
 	}
 	dfss.wg.Add(1)
 	dfss.fhirJSONs <- string(json)
+	if err := fhirStoreChannelSizeCounter.Record(ctx, int64(len(dfss.fhirJSONs))); err != nil {
+		return err
+	}
 	return nil
 }
 
