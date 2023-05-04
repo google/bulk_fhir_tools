@@ -30,8 +30,8 @@ At a high level this script sets up the following:
 
 ## Usage
 
-Note the user who will run this script will likley need many administrative
-privliges in the project, including the ability to create workflows, schedulers,
+Note the user who will run this script will likely need many administrative
+privileges in the project, including the ability to create workflows, schedulers,
 and have the iam.serviceAccounts.actAs permission for the service account you'd
 like to run the batch jobs for (see
 [deploy_and_schedule_workflow.sh](deploy_and_schedule_workflow.sh) for more details).

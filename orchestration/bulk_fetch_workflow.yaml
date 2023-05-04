@@ -18,10 +18,9 @@ main:
     - init:
         assign:
           - projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
-          - region: "us-central1"
           # TODO(b/256011525): Replace with `batch.googleapis.com/v1` when secret_variables gets supported in v1.
           - batchApi: "batch.googleapis.com/v1alpha"
-          - batchApiUrl: ${"https://" + batchApi + "/projects/" + projectId + "/locations/" + region + "/jobs"}
+          - batchApiUrl: ${"https://" + batchApi + "/projects/" + projectId + "/locations/" + args.location + "/jobs"}
           - imageUri: "golang:latest"
           - jobId: ${"job-bulk-fetch-batch-" + string(int(sys.now()))}
           - bucket: ${projectId + "-bulk-fhir-fetch"}
@@ -156,38 +155,17 @@ main:
           - condition: ${getJobResult.body.status.state == "SUCCEEDED"}
             next: returnResult
           - condition: ${getJobResult.body.status.state == "FAILED"}
-            next: deleteBucket
+            next: failExecution
         next: sleep
     - sleep:
         call: sys.sleep
         args:
           seconds: 10
         next: getJob
-    - deleteBucket:
-        call: googleapis.storage.v1.buckets.delete
-        args:
-          bucket: ${bucket}
-    - logDeleteBucket:
-        call: sys.log
-        args:
-          data: ${"Deleted bucket " + bucket}
-        next: failExecution
-    # You can delete the batch job or keep it for debugging
-    # - logDeleteBatchJob:
-    #     call: sys.log
-    #     args:
-    #       data: ${"Deleting the batch job " + jobId}
-    # - deleteBatchJob:
-    #     call: http.delete
-    #     args:
-    #       url: ${batchApiUrl + "/" + jobId}
-    #       auth:
-    #         type: OAuth2
-    #     result: deleteBatchJob
     - returnResult:
         return:
           jobId: ${jobId}
           message: ${"A bucket with FHIR values was created at `" + bucket + "`"}
     - failExecution:
         raise:
-          message: ${"The underlying batch job " + jobId + " failed"}
+          message: ${"The underlying batch job " + jobId + " failed. You may wish to delete or inspect data in the job bucket " + bucket }
