@@ -52,6 +52,7 @@ SERVICE_ACCT="TODO_REPLACE@developer.gserviceaccount.com"
 FHIR_SERVER_BASE_URL="https://sandbox.bcda.cms.gov/api/v2"
 FHIR_AUTH_URL="https://sandbox.bcda.cms.gov/auth/token"
 FHIR_AUTH_SCOPES=""  # Comma separated list, if needed.
+FHIR_GROUP_ID="" # Leave empty if you don't have a group, and want to try full data export. Some servers require a group, though.
 # If USE_INCREMENTAL_INGESTION="true" then a since file stored in GCS will be
 # used to attempt to fetch only new data since the last successful import. Set
 # this variable to "false" to turn off this behavior and fetch the full
@@ -134,7 +135,8 @@ gcloud scheduler jobs update http ${SCHEDULER_NAME} \
   \\\"client_secret_gcp_secret_id\\\": \\\"${CLIENT_SECRET_GCP_SECRET_ID}\\\",
   \\\"use_incremental_ingestion\\\": \\\"${USE_INCREMENTAL_INGESTION}\\\",
   \\\"service_account\\\": \\\"${SERVICE_ACCT}\\\",
-  \\\"instance_template_name\\\": \\\"${STATIC_IP_INSTANCE_TEMPLATE_NAME}\\\"
+  \\\"instance_template_name\\\": \\\"${STATIC_IP_INSTANCE_TEMPLATE_NAME}\\\",
+  \\\"fhir_group_id\\\": \\\"${FHIR_GROUP_ID}\\\"
 }\"}"
 
 echo "Done."
