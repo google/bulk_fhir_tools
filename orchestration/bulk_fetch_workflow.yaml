@@ -101,6 +101,7 @@ main:
                          -fhir_server_base_url=${FHIR_SERVER_BASE_URL}
                          -fhir_auth_url=${FHIR_AUTH_URL}
                          -fhir_auth_scopes=${FHIR_AUTH_SCOPES}
+                         -group_id=${FHIR_GROUP_ID}
                          -rectify=true
                          -enable_fhir_store=true
                          -fhir_store_gcp_project=${PROJECT_ID}
@@ -124,6 +125,7 @@ main:
                         FHIR_AUTH_SCOPES: ${args.fhir_auth_scopes}
                         BUCKET: ${bucket}
                         SINCE_FILE: ${sinceFile}
+                        FHIR_GROUP_ID: ${args.fhir_group_id}
                       # TODO(b/256011525): Replace with a place holder telling the user how to set and get these values.
                       secret_variables:
                         CLIENT_ID : ${args.client_id_gcp_secret_id}
