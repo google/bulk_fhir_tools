@@ -134,6 +134,10 @@ func newTestSyntheaServer(t *testing.T) *httptest.Server {
 					}
 				 ]
 			}`},
+			{
+				"metadata.txt",
+				"Invalid Json this file should be skipped as it does not end with .json",
+			},
 		}
 		buf := new(bytes.Buffer)
 		zw := zip.NewWriter(buf)

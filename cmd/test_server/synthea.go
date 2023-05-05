@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -124,6 +125,9 @@ func convertBundles(zipPath, outputFolder string, rowsPerNDJSON int) (err error)
 		return err
 	}
 	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || !strings.HasSuffix(f.Name, ".json") {
+			continue
+		}
 		fr, err := f.Open()
 		if err != nil {
 			return err
