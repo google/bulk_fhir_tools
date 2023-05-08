@@ -125,7 +125,10 @@ func (c *Client) UploadResource(fhirJSON []byte) error {
 // independent. The error returned may be an instance of BundleError,
 // which provides additional structured information on the error.
 func (c *Client) UploadBatch(fhirJSONs [][]byte) error {
-	bundle := makeFHIRBundle(fhirJSONs, false)
+	bundle, err := makeFHIRBundle(fhirJSONs, false)
+	if err != nil {
+		return err
+	}
 	bundleJSON, err := json.Marshal(bundle)
 	if err != nil {
 		return err
@@ -230,11 +233,17 @@ type fhirBundle struct {
 	Entry        []entry `json:"entry"`
 }
 
-type entry struct {
-	Resource json.RawMessage `json:"resource"`
+type request struct {
+	Method string `json:"method"`
+	URL    string `json:"url"`
 }
 
-func makeFHIRBundle(fhirJSONs [][]byte, isTransaction bool) *fhirBundle {
+type entry struct {
+	Resource json.RawMessage `json:"resource"`
+	Request  request         `json:"request"`
+}
+
+func makeFHIRBundle(fhirJSONs [][]byte, isTransaction bool) (*fhirBundle, error) {
 	bundleType := "batch"
 	if isTransaction {
 		bundleType = "transaction"
@@ -248,9 +257,17 @@ func makeFHIRBundle(fhirJSONs [][]byte, isTransaction bool) *fhirBundle {
 	bundle.Entry = make([]entry, len(fhirJSONs))
 	for i, fhirJSON := range fhirJSONs {
 		bundle.Entry[i].Resource = fhirJSON
+		resourceType, resourceID, err := getResourceTypeAndID(fhirJSON)
+		if err != nil {
+			return nil, err
+		}
+		bundle.Entry[i].Request = request{
+			URL:    fmt.Sprintf("%s/%s", resourceType, resourceID),
+			Method: "PUT",
+		}
 	}
 
-	return &bundle
+	return &bundle, nil
 }
 
 type resourceData struct {

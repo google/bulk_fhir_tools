@@ -141,6 +141,21 @@ func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, expected
 				t.Errorf("server received unexpected FHIR resource: %s", gotResource)
 			}
 
+			// Check the entry.request is correctly formed.
+			resourceType, resourceID, err := getResourceTypeAndID(gotEntry.Resource)
+			if err != nil {
+				t.Errorf("unable to get resourceType and resourceID for entry in bundle: %v", err)
+			}
+
+			if gotEntry.Request.Method != "PUT" {
+				t.Errorf("unexpected entry.request.method. got: %v, want: PUT", gotEntry.Request.Method)
+			}
+
+			wantURL := fmt.Sprintf("%s/%s", resourceType, resourceID)
+			if gotEntry.Request.URL != wantURL {
+				t.Errorf("unexpected entry.request.url. got: %v, want: %v", gotEntry.Request.URL, wantURL)
+			}
+
 			// Update the corresponding index in expectedResourceWasUploaded slice.
 			expectedResourceWasUploadedMutex.Lock()
 			expectedResourceWasUploaded[expectedResourceIdx] = true
@@ -239,6 +254,26 @@ type fhirBundle struct {
 	Entry        []entry `json:"entry"`
 }
 
+type request struct {
+	Method string `json:"method"`
+	URL    string `json:"url"`
+}
+
 type entry struct {
 	Resource json.RawMessage `json:"resource"`
+	Request  request         `json:"request"`
+}
+
+type resourceData struct {
+	ResourceID   string `json:"id"`
+	ResourceType string `json:"resourceType"`
+}
+
+func getResourceTypeAndID(fhirJSON []byte) (resourceType, resourceID string, err error) {
+	var data resourceData
+	err = json.Unmarshal(fhirJSON, &data)
+	if err != nil {
+		return "", "", err
+	}
+	return data.ResourceType, data.ResourceID, err
 }
