@@ -22,6 +22,12 @@ Count of uploads to FHIR Store by FHIR Resource Type and the HTTP Status returne
 **fhir-store-batch-upload-counter**:
 Count of FHIR Bundles uploaded to FHIR Store by HTTP Status returned from the FHIR Store API. This counter is applicable when the fhir_store_enable_batch_upload flag is enabled.
 
+**fhir-store-channel-size-counter**:
+The number of unread FHIR Resources that are waiting in the channel to be uploaded to FHIR Store. If this reaches the max channel size of 100 it means the write calls to FHIR Store are blocking.
+
+**ndjson-store-channel-size-counter**:
+The number of unread FHIR Resources that are waiting in the channel to be uploaded to GCS or saved locally as ndjson. If this reaches the max channel size of 100 it means the write calls to GCS are blocking.
+
 ## Sending Logs and Monitoring to GCP
 
 Instead of STDOUT, logs and monitoring can be sent to GCP.

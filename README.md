@@ -132,7 +132,7 @@ Do not run concurrent instances of fetch that use the same since file.
   version of the tool, use `-output_prefix` instead of `-output_dir`.
 
 To set up the `bulk_fhir_fetch` program to run periodically on a GCP VM, take a look at the
-[documentation](docs/periodic_gcp_ingestion.md).
+[documentation](docs/periodic_gcp_ingestion.md). For a discussion on the different FHIR Store upload options see the [performance and cost documentation](docs/logs_and_monitoring.md#fhir-store-upload-options).
 
 ## Cloning at a pinned version
 
