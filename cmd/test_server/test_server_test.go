@@ -17,8 +17,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/fs"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -214,7 +212,7 @@ func TestTestServer_ValidPatientExport(t *testing.T) {
 func TestTestServer_Hello(t *testing.T) {
 	t.Parallel()
 	serverURL := runTestServer(t, t.TempDir(), "", "", false)
-	t.Logf(serverURL)
+
 	resp, err := http.Get(serverURL + "/hello")
 	if err != nil {
 		t.Errorf("unexpected error when making request: %v", err)
@@ -229,30 +227,25 @@ func TestTestServer_Hello(t *testing.T) {
 	}
 }
 
-func runTestServer(t *testing.T, dataDir, validClientID, validClientSecret string, synthea bool) string {
+func runTestServer(t *testing.T, dataDir, clientID, clientSecret string, synthea bool) string {
+	cfg := serverConfig{
+		dataDir:              dataDir,
+		jobDelay:             2 * time.Second,
+		retryAfter:           1,
+		clientID:             clientID,
+		clientSecret:         clientSecret,
+		synthea:              synthea,
+		syntheaRowsPerNDJSON: 2,
+	}
 	if synthea {
-		server := newTestSyntheaServer(t)
-		if err := loadSynthea(server.URL, dataDir, 2); err != nil {
-			log.Fatalf("loading the synthea failed: %v", err)
-		}
-		log.Printf("Successfully loaded Synthea synthetic FHIR data into %s", filepath.Join(dataDir, syntheaGroupID, syntheaTimeStamp))
+		cfg.syntheaURL = newTestSyntheaServer(t).URL
 	}
 
-	testServer := &server{
-		jobs:              map[string]*exportJob{},
-		validClientID:     validClientID,
-		validClientSecret: validClientSecret,
-		jobDelay:          2 * time.Second,
-		retryAfter:        1,
+	testServer, err := setupServer(cfg)
+	if err != nil {
+		t.Fatalf("setupServer(%v) returned and error: %v", cfg, err)
 	}
-	if dataDir == "" {
-		var err error
-		if testServer.dataFS, err = fs.Sub(testdata, "synthetic_testdata"); err != nil {
-			t.Fatalf("fs.Sub returned an error: %v", err)
-		}
-	} else {
-		testServer.dataFS = os.DirFS(dataDir)
-	}
+
 	h := testServer.buildHandler()
 	server := httptest.NewServer(h)
 	testServer.baseURL = server.URL

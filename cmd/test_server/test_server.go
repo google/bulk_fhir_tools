@@ -20,6 +20,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -37,7 +38,8 @@ import (
 )
 
 var (
-	port                 = flag.Int("port", 8000, "Port to listen on")
+	port                 = flag.Int("port", 8000, "Port the server listens on.")
+	host                 = flag.String("host", "127.0.0.1", "Host the server listens on. Also used to specify the callback URLs the client can use to download FHIR NDJSON files and query for export job status. If you are running the Bulk FHIR Client and Test Server on the same machine you can use the default localhost. Do not include the scheme (e.g. http://).")
 	dataDir              = flag.String("data_dir", "", "Directory to read data to be served from. If empty, the server will always serve some pre-canned basic FHIR data.")
 	jobDelay             = flag.Duration("job_delay", time.Minute, "How long jobs take to complete. Use time.ParseDuration syntax (e.g. 1h15m30s)")
 	retryAfter           = flag.Int("retry_after", 10, "Value of the Retry-After header for incomplete jobs")
@@ -309,42 +311,84 @@ func (s *server) buildHandler() http.Handler {
 	return r
 }
 
-func main() {
-	flag.Parse()
-
-	if *synthea && *dataDir == "" {
-		log.Fatal("if synthea flag is set, dataDir flag must also be set")
+func (s *server) run(host string, port int) error {
+	handler := s.buildHandler()
+	http.Handle("/", handler)
+	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", host, port), nil); err != nil {
+		return err
 	}
 
-	if *synthea {
-		const syntheaURL = "https://github.com/synthetichealth/synthea-sample-data/raw/master/downloads/synthea_sample_data_fhir_r4_nov2021.zip"
-		if err := loadSynthea(syntheaURL, *dataDir, *syntheaRowsPerNDJSON); err != nil {
-			log.Fatalf("loading the Synthea synthetic FHIR data failed: %v", err)
+	log.Printf("Base URL: %s", s.baseURL)
+	return nil
+}
+
+type serverConfig struct {
+	// Used to specify the callback URLs the client can use to download FHIR NDJON files and query for export job status.
+	baseURL              string
+	dataDir              string
+	jobDelay             time.Duration
+	retryAfter           int
+	clientID             string
+	clientSecret         string
+	syntheaURL           string
+	synthea              bool
+	syntheaRowsPerNDJSON int
+}
+
+func buildServerConfig() serverConfig {
+	return serverConfig{
+		baseURL:              fmt.Sprintf("http://%s:%d", *host, *port),
+		dataDir:              *dataDir,
+		jobDelay:             *jobDelay,
+		retryAfter:           *retryAfter,
+		clientID:             *clientID,
+		clientSecret:         *clientSecret,
+		synthea:              *synthea,
+		syntheaURL:           "https://github.com/synthetichealth/synthea-sample-data/raw/master/downloads/synthea_sample_data_fhir_r4_nov2021.zip",
+		syntheaRowsPerNDJSON: *syntheaRowsPerNDJSON,
+	}
+}
+
+func setupServer(cfg serverConfig) (*server, error) {
+	if cfg.synthea && cfg.dataDir == "" {
+		return nil, errors.New("if synthea flag is set, data_dir flag must also be set")
+	}
+
+	if cfg.synthea {
+		if err := loadSynthea(cfg.syntheaURL, cfg.dataDir, cfg.syntheaRowsPerNDJSON); err != nil {
+			return nil, fmt.Errorf("loading the Synthea synthetic FHIR data failed: %v", err)
 		}
-		log.Printf("Successfully loaded Synthea synthetic FHIR data into %s", filepath.Join(*dataDir, syntheaGroupID, syntheaTimeStamp))
+		log.Printf("Successfully loaded Synthea synthetic FHIR data into %s", filepath.Join(cfg.dataDir, syntheaGroupID, syntheaTimeStamp))
 	}
 
 	srv := &server{
-		baseURL:           fmt.Sprintf("http://localhost:%d", *port),
+		baseURL:           cfg.baseURL,
 		jobs:              map[string]*exportJob{},
-		jobDelay:          *jobDelay,
-		retryAfter:        *retryAfter,
-		validClientID:     *clientID,
-		validClientSecret: *clientSecret,
+		jobDelay:          cfg.jobDelay,
+		retryAfter:        cfg.retryAfter,
+		validClientID:     cfg.clientID,
+		validClientSecret: cfg.clientSecret,
 	}
-	if *dataDir == "" {
+	if cfg.dataDir == "" {
 		var err error
 		if srv.dataFS, err = fs.Sub(testdata, "synthetic_testdata"); err != nil {
-			log.Fatalf("fs.Sub returned an error: %v", err)
+			return nil, fmt.Errorf("fs.Sub returned an error: %v", err)
 		}
 	} else {
-		srv.dataFS = os.DirFS(*dataDir)
+		srv.dataFS = os.DirFS(cfg.dataDir)
+	}
+	return srv, nil
+}
+
+func main() {
+	flag.Parse()
+
+	svr, err := setupServer(buildServerConfig())
+	if err != nil {
+		log.Fatalf("error setting up the server %v", err)
 	}
 
-	handler := srv.buildHandler()
-
-	http.Handle("/", handler)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
-		log.Fatal(err)
+	if err := svr.run(*host, *port); err != nil {
+		log.Fatalf("error running the server %v", err)
 	}
 }
