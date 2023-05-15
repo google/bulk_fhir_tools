@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +49,7 @@ const (
 // except for testing.
 func loadSynthea(url, dataDir string, rowsPerNDJSON int) error {
 	syntheaDir := filepath.Join(dataDir, syntheaGroupID, syntheaTimeStamp)
+	log.Printf("Creating folders for Synthea synthetic FHIR data: %s\n", syntheaDir)
 	if err := os.MkdirAll(syntheaDir, 0755); err != nil {
 		return err
 	}
@@ -57,15 +59,21 @@ func loadSynthea(url, dataDir string, rowsPerNDJSON int) error {
 	}
 	tempZipPath := filepath.Join(tempZipDir, "temp_synthea.zip")
 
+	log.Println("Downloading Synthea synthetic FHIR zip file.")
 	if err := downloadZip(url, tempZipPath); err != nil {
 		return err
 	}
+
+	log.Println("Download complete. Converting Synthea FHIR Bundles to NDJSON.")
 	if err := convertBundles(tempZipPath, syntheaDir, rowsPerNDJSON); err != nil {
 		return err
 	}
+
+	log.Println("Conversion complete. Cleaning up temporary zip file.")
 	if err := os.RemoveAll(tempZipDir); err != nil {
 		return err
 	}
+	log.Printf("Successfully loaded Synthea synthetic FHIR data into %s\n", syntheaDir)
 	return nil
 }
 
@@ -128,6 +136,7 @@ func convertBundles(zipPath, outputFolder string, rowsPerNDJSON int) (err error)
 		if f.FileInfo().IsDir() || !strings.HasSuffix(f.Name, ".json") {
 			continue
 		}
+		log.Printf("Converting file: %s\n", f.Name)
 		fr, err := f.Open()
 		if err != nil {
 			return err

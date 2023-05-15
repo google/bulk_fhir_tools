@@ -27,7 +27,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -358,7 +357,6 @@ func setupServer(cfg serverConfig) (*server, error) {
 		if err := loadSynthea(cfg.syntheaURL, cfg.dataDir, cfg.syntheaRowsPerNDJSON); err != nil {
 			return nil, fmt.Errorf("loading the Synthea synthetic FHIR data failed: %v", err)
 		}
-		log.Printf("Successfully loaded Synthea synthetic FHIR data into %s", filepath.Join(cfg.dataDir, syntheaGroupID, syntheaTimeStamp))
 	}
 
 	srv := &server{
