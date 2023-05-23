@@ -71,6 +71,7 @@ var (
 
 	fhirStoreEnableGCSBasedUpload = flag.Bool("fhir_store_enable_gcs_based_upload", false, "If true, writes NDJSONs from the FHIR server to GCS, and then triggers a batch FHIR store import job from the GCS location. fhir_store_gcs_based_upload_bucket must also be set.")
 	fhirStoreGCSBasedUploadBucket = flag.String("fhir_store_gcs_based_upload_bucket", "", "If fhir_store_enable_gcs_based_upload is set, this must be provided to indicate the GCS bucket to write NDJSONs to.")
+	enforceGCSBucketInSameProject = flag.Bool("enforce_gcp_bucket_in_same_project", true, "Check at the start of the program that the GCS Buckets (specified by output_dir, since_file or fhir_store_gcs_based_upload_bucket) belongs to the same project specified by fhir_store_gcp_project. GCS bucket names are global, this is an extra check to make sure users do not accidentally write to an incorrect bucket. True by default, set to False to disable check.")
 )
 
 var (
@@ -78,6 +79,14 @@ var (
 	errMustRectifyForFHIRStore = errors.New("for now, rectify must be enabled for FHIR store upload")
 	errMustSpecifyGCSBucket    = errors.New("if fhir_store_enable_gcs_based_upload=true, fhir_store_gcs_based_upload_bucket must be set")
 )
+
+type errGCSBucketNotInProject struct {
+	Bucket, Project string
+}
+
+func (e *errGCSBucketNotInProject) Error() string {
+	return fmt.Sprintf("could not find the GCS Bucket %s in the GCP project %s. If you want to write to a gcp bucket located in a project different from fhir_store_gcp_project, set enforce_gcp_bucket_in_same_project to false", e.Bucket, e.Project)
+}
 
 const (
 	// gcsImportJobPeriod indicates how often the program should check the FHIR
@@ -137,7 +146,7 @@ func bulkFHIRFetchWrapper(cfg bulkFHIRFetchConfig) error {
 // bulkFHIRFetch holds the business logic for the CLI tool. Logging and metrics init and close
 // are done in the parent bulkFHIRFetchWrapper.
 func bulkFHIRFetch(ctx context.Context, cfg bulkFHIRFetchConfig) error {
-	if err := validateConfig(cfg); err != nil {
+	if err := validateConfig(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -282,7 +291,7 @@ func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (p
 	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath)
 }
 
-func validateConfig(cfg bulkFHIRFetchConfig) error {
+func validateConfig(ctx context.Context, cfg bulkFHIRFetchConfig) error {
 	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
 	}
@@ -308,6 +317,50 @@ func validateConfig(cfg bulkFHIRFetchConfig) error {
 
 	if cfg.fhirStoreEnableGCSBasedUpload && cfg.fhirStoreGCSBasedUploadBucket == "" {
 		return errMustSpecifyGCSBucket
+	}
+
+	if cfg.enforceGCSBucketInSameProject {
+		if cfg.fhirStoreEnableGCSBasedUpload {
+			if err := validateBucketInProject(ctx, cfg.fhirStoreGCSBasedUploadBucket, cfg.fhirStoreGCPProject, cfg.gcsEndpoint); err != nil {
+				return err
+			}
+		}
+		if strings.HasPrefix(cfg.sinceFile, "gs://") {
+			bucket, _, err := gcs.PathComponents(cfg.sinceFile)
+			if err != nil {
+				return err
+			}
+			if err := validateBucketInProject(ctx, bucket, cfg.fhirStoreGCPProject, cfg.gcsEndpoint); err != nil {
+				return err
+			}
+		}
+		if strings.HasPrefix(cfg.outputDir, "gs://") {
+			bucket, _, err := gcs.PathComponents(cfg.outputDir)
+			if err != nil {
+				return err
+			}
+			if err := validateBucketInProject(ctx, bucket, cfg.fhirStoreGCPProject, cfg.gcsEndpoint); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateBucketInProject(ctx context.Context, bucket, project, gcsEndpoint string) error {
+	if project == "" {
+		return fmt.Errorf("fhir_store_gcp_project must be set if you are using a GCS bucket and enforce_gcp_bucket_in_same_project is true")
+	}
+	c, err := gcs.NewClient(ctx, bucket, gcsEndpoint)
+	if err != nil {
+		return err
+	}
+	isInProject, err := c.IsBucketInProject(ctx, project)
+	if err != nil {
+		return err
+	}
+	if !isInProject {
+		return &errGCSBucketNotInProject{Bucket: bucket, Project: project}
 	}
 	return nil
 }
@@ -339,6 +392,7 @@ type bulkFHIRFetchConfig struct {
 	fhirStoreBatchUploadSize      int
 	fhirStoreEnableGCSBasedUpload bool
 	fhirStoreGCSBasedUploadBucket string
+	enforceGCSBucketInSameProject bool
 	baseServerURL                 string
 	authURL                       string
 	fhirAuthScopes                []string
@@ -374,6 +428,7 @@ func buildBulkFHIRFetchConfig() (bulkFHIRFetchConfig, error) {
 
 		fhirStoreEnableGCSBasedUpload: *fhirStoreEnableGCSBasedUpload,
 		fhirStoreGCSBasedUploadBucket: *fhirStoreGCSBasedUploadBucket,
+		enforceGCSBucketInSameProject: *enforceGCSBucketInSameProject,
 
 		baseServerURL:        *baseServerURL,
 		authURL:              *authURL,

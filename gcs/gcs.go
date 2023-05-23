@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -80,6 +81,25 @@ func (gcsClient Client) GetFileWriter(ctx context.Context, fileName string) io.W
 func (gcsClient Client) GetFileReader(ctx context.Context, fileName string) (io.ReadCloser, error) {
 	bkt := gcsClient.Bucket(gcsClient.bucketName)
 	return bkt.Object(fileName).NewReader(ctx)
+}
+
+// IsBucketInProject returns true if the bucket is in the GCP project.
+func (gcsClient Client) IsBucketInProject(ctx context.Context, project string) (bool, error) {
+	it := gcsClient.Buckets(ctx, project)
+	it.Prefix = gcsClient.bucketName
+	for {
+		bucketAttrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return false, err
+		}
+		if bucketAttrs.Name == gcsClient.bucketName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // JoinPath is roughly equivalent to path/filepath.Join, except that it always

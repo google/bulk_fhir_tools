@@ -22,6 +22,42 @@ import (
 	"github.com/google/medical_claims_tools/internal/testhelpers"
 )
 
+func TestGCSIsBucketInProjectId(t *testing.T) {
+	cases := []struct {
+		name                  string
+		bucketName            string
+		wantIsBucketInProject bool
+	}{
+		{
+			name:                  "Bucket In Project",
+			bucketName:            "bucketName",
+			wantIsBucketInProject: true,
+		},
+		{
+			name:                  "Bucket Not In Project",
+			bucketName:            "differentBucketName",
+			wantIsBucketInProject: false,
+		},
+	}
+	for _, tc := range cases {
+		server := testhelpers.NewGCSServer(t)
+
+		gcsClient, err := NewClient(context.Background(), tc.bucketName, server.URL())
+		if err != nil {
+			t.Error("Unexpected error when getting NewClient: ", err)
+		}
+
+		gotIsBucketInProject, err := gcsClient.IsBucketInProject(context.Background(), "project")
+		if err != nil {
+			t.Error("Unexpected error from IsBucketInProject: ", err)
+		}
+
+		if gotIsBucketInProject != tc.wantIsBucketInProject {
+			t.Errorf("test case %s failed got %v; want %v", tc.name, gotIsBucketInProject, tc.wantIsBucketInProject)
+		}
+	}
+}
+
 func TestGCSClientWritesResourceToGCS(t *testing.T) {
 	var bucketID = "TestBucket"
 	var resourceName = "directory/TestResource"

@@ -15,6 +15,7 @@
 package testhelpers
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -74,13 +75,41 @@ func (gs *GCSServer) URL() string {
 }
 
 const uploadPathPrefix = "/upload/storage/v1/b/"
+const listPathPrefix = "/b"
 
 func (gs *GCSServer) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if strings.HasPrefix(req.URL.Path, uploadPathPrefix) {
 		gs.handleUpload(w, req)
+	} else if strings.HasPrefix(req.URL.Path, listPathPrefix) {
+		gs.handleList(w, req)
 	} else {
 		gs.handleDownload(w, req)
 	}
+}
+
+func (gs *GCSServer) handleList(w http.ResponseWriter, req *http.Request) {
+	r := struct {
+		Kind          string
+		NextPageToken string
+		Items         []struct {
+			Kind string
+			ID   string
+			Name string
+		}
+	}{
+		Kind:          "storage#buckets",
+		NextPageToken: "",
+		Items: []struct {
+			Kind string
+			ID   string
+			Name string
+		}{{Kind: "storage#bucket", ID: "bucketName", Name: "bucketName"}},
+	}
+	j, err := json.Marshal(r)
+	if err != nil {
+		gs.t.Fatalf("failed to marshal json in GCS handleList: %v", err)
+	}
+	w.Write(j)
 }
 
 func (gs *GCSServer) handleUpload(w http.ResponseWriter, req *http.Request) {

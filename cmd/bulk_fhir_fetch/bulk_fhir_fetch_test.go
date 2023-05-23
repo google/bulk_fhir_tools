@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1405,6 +1406,7 @@ func TestBuildBulkFHIRFetchWrapperConfig(t *testing.T) {
 	flag.Set("fhir_store_batch_upload_size", "10")
 	flag.Set("fhir_store_enable_gcs_based_upload", "true")
 	flag.Set("fhir_store_gcs_based_upload_bucket", "my-bucket")
+	flag.Set("enforce_gcs_bucket_in_same_project", "true")
 	flag.Set("bcda_server_url", "url")
 	flag.Set("enable_generalized_bulk_import", "true")
 	flag.Set("fhir_server_base_url", "url")
@@ -1435,6 +1437,7 @@ func TestBuildBulkFHIRFetchWrapperConfig(t *testing.T) {
 		fhirStoreBatchUploadSize:      10,
 		fhirStoreEnableGCSBasedUpload: true,
 		fhirStoreGCSBasedUploadBucket: "my-bucket",
+		enforceGCSBucketInSameProject: true,
 		baseServerURL:                 "url",
 		authURL:                       "url",
 		fhirAuthScopes:                []string{"scope1", "scope2"},
@@ -1450,8 +1453,8 @@ func TestBuildBulkFHIRFetchWrapperConfig(t *testing.T) {
 		t.Errorf("buildBulkFHIRFetchConfig() error: %v", err)
 	}
 
-	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
-		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-want +got): %s", diff)
+	if diff := cmp.Diff(cfg, expectedCfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
+		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-got +want): %s", diff)
 	}
 }
 
@@ -1460,13 +1463,14 @@ func TestBuildBulkFHIRFetchWrapperConfigBCDAFlag(t *testing.T) {
 	flag.Set("bcda_server_url", "url")
 
 	expectedCfg := bulkFHIRFetchConfig{
-		fhirStoreEndpoint:         fhirstore.DefaultHealthcareEndpoint,
-		gcsEndpoint:               gcs.DefaultCloudStorageEndpoint,
-		maxFHIRStoreUploadWorkers: 10,
-		fhirAuthScopes:            []string{""},
-		fhirResourceTypes:         []cpb.ResourceTypeCode_Value{},
-		baseServerURL:             "url/api/v2",
-		authURL:                   "url/auth/token",
+		fhirStoreEndpoint:             fhirstore.DefaultHealthcareEndpoint,
+		gcsEndpoint:                   gcs.DefaultCloudStorageEndpoint,
+		maxFHIRStoreUploadWorkers:     10,
+		fhirAuthScopes:                []string{""},
+		fhirResourceTypes:             []cpb.ResourceTypeCode_Value{},
+		baseServerURL:                 "url/api/v2",
+		authURL:                       "url/auth/token",
+		enforceGCSBucketInSameProject: true,
 	}
 
 	cfg, err := buildBulkFHIRFetchConfig()
@@ -1474,8 +1478,8 @@ func TestBuildBulkFHIRFetchWrapperConfigBCDAFlag(t *testing.T) {
 		t.Errorf("buildBulkFHIRFetchConfig() error: %v", err)
 	}
 
-	if diff := cmp.Diff(expectedCfg, cfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
-		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-want +got): %s", diff)
+	if diff := cmp.Diff(cfg, expectedCfg, cmp.AllowUnexported(bulkFHIRFetchConfig{})); diff != "" {
+		t.Errorf("buildBulkFHIRFetchConfig unexpected diff (-got +want): %s", diff)
 	}
 }
 
@@ -1486,6 +1490,44 @@ func TestBuildBulkFHIRFetchConfig_FHIRResourceTypesError(t *testing.T) {
 	_, err := buildBulkFHIRFetchConfig()
 	if err == nil {
 		t.Errorf("buildBulkFHIRFetchConfig() should have returned an error")
+	}
+}
+
+func TestValidateConfig_EnforceGCPBucketInSameProject(t *testing.T) {
+	cases := []struct {
+		name    string
+		gcsPath string
+		wantErr error
+	}{
+		{
+			name:    "Bucket In Project",
+			gcsPath: "gs://bucketName/patients/",
+			wantErr: nil,
+		},
+		{
+			name:    "Bucket Not In Project",
+			gcsPath: "gs://differentBucketName/patients",
+			wantErr: &errGCSBucketNotInProject{Bucket: "differentBucketName", Project: "project"},
+		},
+	}
+	for _, tc := range cases {
+		gcsServer := testhelpers.NewGCSServer(t)
+
+		cfg := bulkFHIRFetchConfig{
+			gcsEndpoint:                   gcsServer.URL(),
+			clientID:                      "clientID",
+			clientSecret:                  "clientSecret",
+			outputDir:                     tc.gcsPath,
+			baseServerURL:                 "url",
+			authURL:                       "url",
+			fhirStoreGCPProject:           "project",
+			enforceGCSBucketInSameProject: true,
+		}
+
+		gotErr := validateConfig(context.Background(), cfg)
+		if diff := cmp.Diff(gotErr, tc.wantErr); diff != "" {
+			t.Errorf("for test case (-got +want): %s", diff)
+		}
 	}
 }
 
