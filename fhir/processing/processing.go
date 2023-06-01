@@ -223,12 +223,19 @@ func (p *Pipeline) writeToSinks(ctx context.Context, resource ResourceWrapper) e
 //
 // It is not safe to call this function from multiple Goroutines.
 func (p *Pipeline) Process(ctx context.Context, resourceType cpb.ResourceTypeCode_Value, sourceURL string, json []byte) error {
+	//  Since a processor/sink may have internal parallelism, json []byte may
+	//  still be processed by a parallel processor/sink after Process() returns.
+	//  json []byte should be a copy in case it is overwritten after Process()
+	//  returns.
+	cp := make([]byte, len(json))
+	copy(cp, json)
+
 	rw := &resourceWrapper{
 		unmarshaller: p.unmarshaller,
 		marshaller:   p.marshaller,
 		resourceType: resourceType,
 		sourceURL:    sourceURL,
-		json:         json,
+		json:         cp,
 	}
 	if err := fhirResourceCounter.Record(ctx, 1, resourceType.String()); err != nil {
 		return err
