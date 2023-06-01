@@ -45,8 +45,8 @@ const (
 
 const (
 	// maxTokenSize represents the maximum newline delimited token size in bytes
-	// expected when parsing FHIR NDJSON.
-	maxTokenSize = 500 * 1024
+	// expected when parsing FHIR NDJSON. Currently set to 10MB.
+	maxTokenSize = 10 * 1024 * 1024
 	// initialBufferSize indicates the initial buffer size in bytes to use when
 	// parsing a FHIR NDJSON token.
 	initialBufferSize = 5 * 1024
