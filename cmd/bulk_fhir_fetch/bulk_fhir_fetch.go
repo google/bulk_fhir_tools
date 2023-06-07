@@ -282,15 +282,6 @@ func getTransactionTimeStore(ctx context.Context, cfg bulkFHIRFetchConfig) (bulk
 	return bulkfhir.NewInMemoryTransactionTimeStore("")
 }
 
-func getGCSOutputSink(ctx context.Context, gcsEndpoint, gcsPathPrefix string) (processing.Sink, error) {
-	bucket, relativePath, err := gcs.PathComponents(gcsPathPrefix)
-	if err != nil {
-		return nil, err
-	}
-
-	return processing.NewGCSNDJSONSink(ctx, gcsEndpoint, bucket, relativePath)
-}
-
 func validateConfig(ctx context.Context, cfg bulkFHIRFetchConfig) error {
 	if cfg.clientID == "" || cfg.clientSecret == "" {
 		return errors.New("both clientID and clientSecret flags must be non-empty")
