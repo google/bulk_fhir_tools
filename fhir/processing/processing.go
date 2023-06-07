@@ -18,6 +18,8 @@ package processing
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/google/fhir/go/fhirversion"
 	"github.com/google/fhir/go/jsonformat"
@@ -28,15 +30,22 @@ import (
 	rpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
 )
 
+// ErrorDoNotModifyProto indicates that the pipeline is in a Sink stage(s) so the returned proto by
+// ResourceWrapper.Proto() should not be mutated.
+var ErrorDoNotModifyProto = errors.New("the pipeline is in the Sink stage(s), so the returned proto should not be mutated")
+
 // ResourceWrapper encapsulates resources to be processed and stored.
 type ResourceWrapper interface {
 	// Type returns the type of the resource, for easy filtering by processors.
 	Type() cpb.ResourceTypeCode_Value
 	// SourceURL returns the URL the resource was obtained from.
 	SourceURL() string
-	// Proto returns a proto which can be mutated by processors.
+	// Proto returns a proto which can be mutated by processors. If you call this in a Sink (where
+	// proto mutations should not happen), this will return the proto and the ErrorDoNotModifyProto
+	// error.
 	Proto() (*rpb.ContainedResource, error)
-	// JSON serialises the ContainedResource proto to FHIR JSON.
+	// JSON serialises the ContainedResource proto to FHIR JSON. The call to JSON() should be thread
+	// safe.
 	JSON() ([]byte, error)
 }
 
@@ -46,7 +55,9 @@ type resourceWrapper struct {
 	resourceType cpb.ResourceTypeCode_Value
 	sourceURL    string
 	proto        *rpb.ContainedResource
-	json         []byte
+
+	jsonMut *sync.Mutex
+	json    []byte
 	// By default, the json field is cleared when the proto is accessed, on the
 	// assumption that the proto will be mutated, and thus the JSON would get out
 	// of sync. Once processing is done, this flag may be switched to true so that
@@ -70,22 +81,42 @@ func (rw *resourceWrapper) Proto() (*rpb.ContainedResource, error) {
 		}
 		rw.proto = proto
 	}
-	if !rw.doneMutating {
-		// Clear the json so that it is not out of sync if the proto is mutated.
-		rw.json = nil
+
+	if rw.doneMutating {
+		// The proto should not be mutated anymore! We still return the proto, but along with a
+		// sentinel error indicating the proto should not be mutated anymore.
+		return rw.proto, ErrorDoNotModifyProto
 	}
+
+	// Clear the json so that it is not out of sync if the proto is mutated. Later calls to JSON()
+	// will cause the JSON to be regenerated from the Proto.
+	rw.jsonMut.Lock()
+	rw.json = nil
+	rw.jsonMut.Unlock()
+
 	return rw.proto, nil
 }
 
 func (rw *resourceWrapper) JSON() ([]byte, error) {
-	if rw.json == nil {
-		json, err := rw.marshaller.Marshal(rw.proto)
-		if err != nil {
-			return nil, err
-		}
+	rw.jsonMut.Lock()
+	defer rw.jsonMut.Unlock()
+
+	// If rw.json is not nil, that means we have cached, valid JSON we can just return.
+	if rw.json != nil {
+		return rw.json, nil
+	}
+
+	json, err := rw.marshaller.Marshal(rw.proto)
+	if err != nil {
+		return nil, err
+	}
+
+	// If there will be no further mutations to the underlying proto, we can cache our marshaled json
+	// to serve in future calls to JSON().
+	if rw.doneMutating {
 		rw.json = json
 	}
-	return rw.json, nil
+	return json, nil
 }
 
 // Verify resourceWrapper satisfies the ResourceWrapper interface.
@@ -235,6 +266,7 @@ func (p *Pipeline) Process(ctx context.Context, resourceType cpb.ResourceTypeCod
 		marshaller:   p.marshaller,
 		resourceType: resourceType,
 		sourceURL:    sourceURL,
+		jsonMut:      &sync.Mutex{},
 		json:         cp,
 	}
 	if err := fhirResourceCounter.Record(ctx, 1, resourceType.String()); err != nil {

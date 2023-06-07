@@ -129,7 +129,9 @@ func TestDocumentsProcessor(t *testing.T) {
 			// wanted resource with the filename that was written.
 
 			gotResource, err := ts.WrittenResources[0].Proto()
-			if err != nil {
+			// Note we are expecting the processing.ErrorDoNotModifyProto error, because we are calling
+			// Proto() in a sink.
+			if err != nil && err != processing.ErrorDoNotModifyProto {
 				t.Fatalf("writtenResource.Proto() returned unexpected error: %v", err)
 			}
 			for i, c := range gotResource.GetDocumentReference().GetContent() {
