@@ -267,9 +267,10 @@ func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
 
 	isDone := false
 	deadline := time.Now().Add(gbfss.gcsImportJobTimeout)
+	start := time.Now()
 	for !isDone && time.Now().Before(deadline) {
 		time.Sleep(gbfss.gcsImportJobPeriod)
-		log.Infof("GCS Import Job still pending...")
+		log.Infof("GCS Import Job has been running for %s, still pending...", time.Since(start)/time.Minute)
 
 		isDone, err = gbfss.fhirStoreClient.CheckGCSImportStatus(opName)
 		if err != nil {
@@ -282,9 +283,12 @@ func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
 	}
 
 	if !isDone && !gbfss.noFailOnUploadErrors {
-		return errors.New("fhir store import via GCS timed out")
+		return fmt.Errorf("FHIR Store import via GCS exceeded %s. It may still complete but bulk-fhir-fetch will not update the since_file", gbfss.gcsImportJobTimeout)
+	} else if !isDone {
+		log.Warningf("FHIR Store import via GCS exceeded %s. It may or may not still complete but bulk-fhir-fetch will update the since_file either way", gbfss.gcsImportJobTimeout)
+	} else {
+		log.Infof("FHIR Store import is complete!")
 	}
-	log.Infof("FHIR Store import is complete!")
 	return nil
 }
 

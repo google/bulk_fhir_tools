@@ -91,7 +91,7 @@ func (e *errGCSBucketNotInProject) Error() string {
 const (
 	// gcsImportJobPeriod indicates how often the program should check the FHIR
 	// store GCS import job.
-	gcsImportJobPeriod = 5 * time.Second
+	gcsImportJobPeriod = 30 * time.Second
 	// gcsImportJobTimeout indicates the maximum time that should be spent
 	// checking on the FHIR Store GCS import job.
 	gcsImportJobTimeout = 6 * time.Hour
