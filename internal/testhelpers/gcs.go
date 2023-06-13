@@ -89,6 +89,18 @@ func (gs *GCSServer) GetAllObjects() []GCSObjectEntry {
 	return results
 }
 
+// GetAllPaths returns a slice representing the upload path of all items that have been uploaded to
+// the test server in the form gs://bucket/path.
+func (gs *GCSServer) GetAllPaths() []string {
+	gs.objectsMut.RLock()
+	defer gs.objectsMut.RUnlock()
+	results := make([]string, 0, len(gs.objects))
+	for path := range gs.objects {
+		results = append(results, fmt.Sprintf("gs://%s/%s", path.bucket, path.name))
+	}
+	return results
+}
+
 // URL returns the URL of the GCS server to be passed to the client library.
 func (gs *GCSServer) URL() string {
 	return gs.server.URL

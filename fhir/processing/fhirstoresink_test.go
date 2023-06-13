@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -507,7 +508,6 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 	ctx := context.Background()
 
 	patient1 := []byte(`{"resourceType":"Patient","id":"PatientID1"}`)
-	transactionTimeStr := "2020-12-09T11:00:00.123+00:00"
 	transactionTime := time.Date(2020, 12, 9, 11, 0, 0, 123000000, time.UTC)
 
 	bucketName := "bucket"
@@ -597,11 +597,14 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 		t.Errorf("unexpected data in GCS file shards. got: %s, want: %s", gotData, wantData)
 	}
 
-	// Check that at least one file shard was written to a directory with the transaction time:
-	objName := transactionTimeStr + "/fhir_data_0_0.ndjson"
-	_, ok := gcsServer.GetObject(bucketName, objName)
-	if !ok {
-		t.Fatalf("gs://%s/%s not found", bucketName, objName)
+	wantTransactionTimeStr := "2020-12-09T11:00:00.123+00:00"
+	// Check that all ndjsons were written to a directory with the transaction time:
+	gcsPaths := gcsServer.GetAllPaths()
+	wantPrefix := fmt.Sprintf("gs://%s/%s", bucketName, wantTransactionTimeStr)
+	for _, p := range gcsPaths {
+		if strings.HasSuffix(p, ".ndjson") && !strings.HasPrefix(p, wantPrefix) {
+			t.Errorf("fhirstoresink: ndjson file shard written to wrong directory, got path: %v, want directory: %v", p, wantPrefix)
+		}
 	}
 
 	if !importCalled {
