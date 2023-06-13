@@ -15,7 +15,11 @@
 package testhelpers
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,4 +45,41 @@ func NormalizeJSON(t *testing.T, jsonIn []byte) []byte {
 // marshaled from a json.Marshal.
 func NormalizeJSONString(t *testing.T, jsonIn string) string {
 	return string(NormalizeJSON(t, []byte(jsonIn)))
+}
+
+// ReadAllFHIRJSON reads all ndjsons in the output directory, extracts out the FHIR json for each
+// resource, and adds it to the output [][]byte. If normalize=true, then NormalizeJSON is applied to
+// the json bytes before being added to the output.
+func ReadAllFHIRJSON(t *testing.T, outputDir string, normalize bool) [][]byte {
+	t.Helper()
+	files, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatalf("unable to read directory %s: %v", outputDir, err)
+	}
+
+	fullData := make([][]byte, 0)
+
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".ndjson") {
+			continue
+		}
+		fullPath := filepath.Join(outputDir, file.Name())
+		gotData, err := os.ReadFile(fullPath)
+		if err != nil {
+			t.Errorf("could not read %s: %v", fullPath, err)
+		}
+		dataLines := bytes.Split(gotData, []byte("\n"))
+
+		for _, line := range dataLines {
+			if len(line) == 0 {
+				continue
+			}
+			line = bytes.TrimSuffix(line, []byte("\n"))
+			if normalize {
+				line = NormalizeJSON(t, line)
+			}
+			fullData = append(fullData, line)
+		}
+	}
+	return fullData
 }

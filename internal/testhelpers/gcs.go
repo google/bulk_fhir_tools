@@ -15,6 +15,7 @@
 package testhelpers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -40,16 +42,18 @@ type GCSObjectEntry struct {
 
 // GCSServer provides a minimal implementation of the GCS API for use in tests.
 type GCSServer struct {
-	t       *testing.T
-	objects map[gcsObjectKey]GCSObjectEntry
-	server  *httptest.Server
+	t          *testing.T
+	objectsMut *sync.RWMutex
+	objects    map[gcsObjectKey]GCSObjectEntry
+	server     *httptest.Server
 }
 
 // NewGCSServer creates a new GCS Server for use in tests.
 func NewGCSServer(t *testing.T) *GCSServer {
 	gs := &GCSServer{
-		t:       t,
-		objects: map[gcsObjectKey]GCSObjectEntry{},
+		t:          t,
+		objectsMut: &sync.RWMutex{},
+		objects:    map[gcsObjectKey]GCSObjectEntry{},
 	}
 	gs.server = httptest.NewServer(http.HandlerFunc(gs.handleHTTP))
 	t.Cleanup(func() {
@@ -60,13 +64,29 @@ func NewGCSServer(t *testing.T) *GCSServer {
 
 // AddObject adds an object to be served by the GCS server.
 func (gs *GCSServer) AddObject(bucket, name string, obj GCSObjectEntry) {
+	gs.objectsMut.Lock()
+	defer gs.objectsMut.Unlock()
 	gs.objects[gcsObjectKey{bucket, name}] = obj
 }
 
 // GetObject retrieves an object which has been uploaded to the server.
 func (gs *GCSServer) GetObject(bucket, name string) (GCSObjectEntry, bool) {
+	gs.objectsMut.RLock()
+	defer gs.objectsMut.RUnlock()
 	obj, ok := gs.objects[gcsObjectKey{bucket, name}]
 	return obj, ok
+}
+
+// GetAllObjects returns all objects uploaded to this test server across all buckets. Use this
+// only if needed for your test, otherwise prefer GetObject.
+func (gs *GCSServer) GetAllObjects() []GCSObjectEntry {
+	gs.objectsMut.RLock()
+	defer gs.objectsMut.RUnlock()
+	results := make([]GCSObjectEntry, 0, len(gs.objects))
+	for _, obj := range gs.objects {
+		results = append(results, obj)
+	}
+	return results
 }
 
 // URL returns the URL of the GCS server to be passed to the client library.
@@ -169,4 +189,27 @@ func (gs *GCSServer) handleDownload(w http.ResponseWriter, req *http.Request) {
 	if _, err := w.Write(object.Data); err != nil {
 		gs.t.Log(err)
 	}
+}
+
+// ReadAllGCSFHIRJSON reads ALL files in the gcsServer, attempets to extract the FHIR json for each
+// resource, and adds it to the output [][]byte. If normalize=true, then NormalizeJSON is applied to
+// the json bytes before being added to the output.
+func ReadAllGCSFHIRJSON(t *testing.T, gcsServer *GCSServer, normalize bool) [][]byte {
+	gcsObjects := gcsServer.GetAllObjects()
+
+	gotData := make([][]byte, 0)
+	for _, file := range gcsObjects {
+		dataLines := bytes.Split(file.Data, []byte("\n"))
+		for _, line := range dataLines {
+			if len(line) == 0 {
+				continue
+			}
+			line = bytes.TrimSuffix(line, []byte("\n"))
+			if normalize {
+				line = NormalizeJSON(t, line)
+			}
+			gotData = append(gotData, line)
+		}
+	}
+	return gotData
 }

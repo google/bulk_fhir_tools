@@ -15,7 +15,6 @@
 package processing_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/fhir/processing"
 	"github.com/google/medical_claims_tools/fhirstore"
@@ -590,13 +590,18 @@ func TestGCSBasedFHIRStoreSink(t *testing.T) {
 		t.Fatalf("pipeline.Finalize() returned unexpected error: %v", err)
 	}
 
-	objName := transactionTimeStr + "/Patient_0.ndjson"
-	obj, ok := gcsServer.GetObject(bucketName, objName)
+	wantData := [][]byte{testhelpers.NormalizeJSON(t, patient1)}
+	gotData := testhelpers.ReadAllGCSFHIRJSON(t, gcsServer, true)
+
+	if !cmp.Equal(gotData, wantData, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+		t.Errorf("unexpected data in GCS file shards. got: %s, want: %s", gotData, wantData)
+	}
+
+	// Check that at least one file shard was written to a directory with the transaction time:
+	objName := transactionTimeStr + "/fhir_data_0_0.ndjson"
+	_, ok := gcsServer.GetObject(bucketName, objName)
 	if !ok {
 		t.Fatalf("gs://%s/%s not found", bucketName, objName)
-	}
-	if !bytes.Contains(obj.Data, patient1) {
-		t.Errorf("gcs server unexpected data: got: %s, want: %s", obj.Data, patient1)
 	}
 
 	if !importCalled {

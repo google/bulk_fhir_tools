@@ -19,11 +19,11 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"os"
 	"path/filepath"
 
-	"github.com/google/medical_claims_tools/bulkfhir"
 	"github.com/google/medical_claims_tools/gcs"
 	log "github.com/google/medical_claims_tools/internal/logger"
 	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
@@ -33,8 +33,21 @@ import (
 )
 
 const numWorkers = 10
+const numResourcesPerShard = 1000 // this must be greater than zero.
+const retryableWorkerErrLimit = 10
 
-var ndjsonChannelSizeCounter *metrics.Counter = metrics.NewCounter("ndjson-store-channel-size-counter", "The number of unread FHIR Resources that are waiting in the channel to be uploaded to GCS or saved locally as ndjson.", "1", aggregation.LastValueInGCPMaxValueInLocal)
+var (
+	ndjsonChannelSizeCounter *metrics.Counter = metrics.NewCounter("ndjson-store-channel-size-counter", "The number of unread FHIR Resources that are waiting in the channel to be uploaded to GCS or saved locally as ndjson.", "1", aggregation.LastValueInGCPMaxValueInLocal)
+	ndjsonSinkErrors         *metrics.Counter = metrics.NewCounter("ndjson-sink-errors", "The number of errors encountered in the GCS or local NDJSON write workers. Will have an ErrorType of FILE if it was a file operation related error, or will have ErrorType of JSON_MARSHAL if related to marshaling or fetching the FHIR JSON.", "1", aggregation.Count, "ErrorType")
+)
+
+const (
+	errTypeFile        = "FILE"
+	errTypeJSONMarshal = "JSON_MARSHAL"
+)
+
+// ErrWorkerError indicates one or more workers had fatal errors.
+var ErrWorkerError = fmt.Errorf("at least one upload worker encountered errors, check the logs for details")
 
 type createFileFunc func(ctx context.Context, filename string) (io.WriteCloser, error)
 
@@ -49,15 +62,17 @@ type fileWrapper struct {
 }
 
 type ndjsonSink struct {
-	// mut is the mutex that must be held anytime ndjsonSink struct is modified.
-	mut *sync.Mutex
+	// workerErrMut is the mutex that must be held anytime ndjsonSink workerError is modified.
+	workerErrMut *sync.Mutex
+	// Indicates if any of the workers had to return due to some kind of un-retryable error or
+	// due to too many retries of some sort of retryable error. All errors should be logged by the
+	// worker.
+	workerErr bool
 
-	files      map[fileKey]*fileWrapper
-	fileIndex  map[cpb.ResourceTypeCode_Value]int
 	createFile createFileFunc
 
-	resourceChan chan ResourceWrapper
-	resourceWG   *sync.WaitGroup
+	resourceChan     chan ResourceWrapper
+	workerCompleteWG *sync.WaitGroup
 }
 
 // NewNDJSONSink creates a new Sink which writes resources to NDJSON files in
@@ -79,16 +94,16 @@ func NewNDJSONSink(ctx context.Context, directory string) (Sink, error) {
 	}
 
 	sink := &ndjsonSink{
-		mut:          &sync.Mutex{},
-		files:        map[fileKey]*fileWrapper{},
-		fileIndex:    map[cpb.ResourceTypeCode_Value]int{},
-		createFile:   createFile,
-		resourceChan: make(chan ResourceWrapper, 100),
-		resourceWG:   &sync.WaitGroup{},
+		workerErrMut:     &sync.Mutex{},
+		workerErr:        false,
+		createFile:       createFile,
+		resourceChan:     make(chan ResourceWrapper, 100),
+		workerCompleteWG: &sync.WaitGroup{},
 	}
 
 	for i := 0; i < numWorkers; i++ {
-		go sink.writeWorker()
+		go sink.writeWorker(i)
+		sink.workerCompleteWG.Add(1)
 	}
 
 	return sink, nil
@@ -114,54 +129,32 @@ func newGCSNDJSONSink(ctx context.Context, endpoint, bucket, directory string) (
 	}
 
 	sink := &ndjsonSink{
-		mut:          &sync.Mutex{},
-		files:        map[fileKey]*fileWrapper{},
-		fileIndex:    map[cpb.ResourceTypeCode_Value]int{},
-		createFile:   createFile,
-		resourceChan: make(chan ResourceWrapper, 100),
-		resourceWG:   &sync.WaitGroup{},
+		workerErrMut:     &sync.Mutex{},
+		workerErr:        false,
+		createFile:       createFile,
+		resourceChan:     make(chan ResourceWrapper, 100),
+		workerCompleteWG: &sync.WaitGroup{},
 	}
 
 	for i := 0; i < numWorkers; i++ {
-		go sink.writeWorker()
+		go sink.writeWorker(i)
+		sink.workerCompleteWG.Add(1)
 	}
 	return sink, nil
-}
-
-func (ns *ndjsonSink) getWriter(ctx context.Context, resource ResourceWrapper) (*fileWrapper, error) {
-	ns.mut.Lock()
-	defer ns.mut.Unlock()
-	key := fileKey{resource.Type(), resource.SourceURL()}
-	if fw, ok := ns.files[key]; ok {
-		return fw, nil
-	}
-
-	typeName, err := bulkfhir.ResourceTypeCodeToName(key.resourceType)
-	if err != nil {
-		return nil, err
-	}
-
-	idx := ns.fileIndex[key.resourceType]
-	ns.fileIndex[resource.Type()] = idx + 1
-	filename := fmt.Sprintf("%s_%d.ndjson", typeName, idx)
-
-	w, err := ns.createFile(ctx, filename)
-	if err != nil {
-		return nil, err
-	}
-	ns.files[key] = &fileWrapper{
-		Mutex: &sync.Mutex{},
-		w:     w,
-	}
-
-	return ns.files[key], nil
 }
 
 // Write writes the resource to the ndjsonSink. For an ndjsonSink or gcsNDJSONSink, Write is
 // non-blocking (other than writing to a channel), and may be called from multiple goroutines on
 // a single sink instance.
 func (ns *ndjsonSink) Write(ctx context.Context, resource ResourceWrapper) error {
-	ns.resourceWG.Add(1)
+	// We need to check if the error flag is set. If it is, we should return errors and try to end
+	// early as workers may not be consuming from the channel anymore.
+	ns.workerErrMut.Lock()
+	defer ns.workerErrMut.Unlock()
+	if ns.workerErr {
+		return ErrWorkerError
+	}
+
 	ns.resourceChan <- resource
 	if err := ndjsonChannelSizeCounter.Record(ctx, int64(len(ns.resourceChan))); err != nil {
 		return err
@@ -169,45 +162,100 @@ func (ns *ndjsonSink) Write(ctx context.Context, resource ResourceWrapper) error
 	return nil
 }
 
-func (ns *ndjsonSink) writeResource(ctx context.Context, resource ResourceWrapper) error {
-	fw, err := ns.getWriter(ctx, resource)
-	if err != nil {
-		return err
+func (ns *ndjsonSink) writeWorker(workerID int) {
+	var currFileShard io.WriteCloser = nil
+	var err error
+	itemsProcessed := 0
+	retryableErrCount := 0
+
+	for r := range ns.resourceChan {
+		// Close the currFileShard and update it with a new file, if needed.
+		if itemsProcessed%numResourcesPerShard == 0 || currFileShard == nil {
+			if currFileShard != nil {
+				if err := currFileShard.Close(); err != nil {
+					log.Errorf("error closing file (ndjsonsink): %v", err)
+					recordNDJSONSinkError(errTypeFile)
+					time.Sleep(time.Second)
+					ns.resourceChan <- r
+					retryableErrCount++
+					continue
+				}
+			}
+
+			currFileShard, err = ns.createFile(context.Background(), fmt.Sprintf("fhir_data_%d_%d.ndjson", workerID, itemsProcessed/numResourcesPerShard))
+			if err != nil {
+				log.Errorf("error creating file (ndjsonsink): %v", err)
+				recordNDJSONSinkError(errTypeFile)
+				time.Sleep(time.Second)
+				ns.resourceChan <- r
+				retryableErrCount++
+				continue
+			}
+		}
+
+		json, err := r.JSON()
+		if err != nil {
+			// This is not a retryable error and we do not need to fail the pipeline for this either.
+			// So we log an error, increment the error count, and continue processing other
+			// resources.
+			log.Errorf("unable to get JSON for resource (ndjsonsink), will SKIP resource and continue: %v", err)
+			recordNDJSONSinkError(errTypeJSONMarshal)
+			continue
+		}
+		_, err = currFileShard.Write(append(json, byte('\n')))
+		if err != nil {
+			log.Errorf("error writing FHIR resource to file (ndjsonsink): %v", err)
+			recordNDJSONSinkError(errTypeFile)
+			time.Sleep(time.Second)
+			ns.resourceChan <- r
+			retryableErrCount++
+			continue
+		}
+
+		// If we've had too many retryable errors for this worker, we set the workerErr flag and return
+		// which ends this worker.
+		if retryableErrCount >= retryableWorkerErrLimit {
+			log.Errorf("worker %d had too many retryable errors (%d), see logs for details", workerID, retryableWorkerErrLimit)
+			ns.setWorkerErr()
+			ns.workerCompleteWG.Done()
+			return
+		}
+
+		itemsProcessed++
 	}
 
-	fw.Lock()
-	defer fw.Unlock()
-
-	json, err := resource.JSON()
-	if err != nil {
-		return err
+	if currFileShard != nil {
+		if err := currFileShard.Close(); err != nil {
+			log.Errorf("error closing file (ndjsonsink): %v", err)
+			// If the final file's close doesn't work, we set the error flag.
+			ns.setWorkerErr()
+			recordNDJSONSinkError(errTypeFile)
+		}
 	}
-	_, err = fw.w.Write(append(json, byte('\n')))
-	return err
+	ns.workerCompleteWG.Done()
 }
 
-func (ns *ndjsonSink) writeWorker() {
-	for r := range ns.resourceChan {
-		// TODO(b/277096473): plumb better context here.
-		if err := ns.writeResource(context.Background(), r); err != nil {
-			log.Errorf("error writing resource: %v", err)
-		}
-		ns.resourceWG.Done()
-	}
+func (ns *ndjsonSink) setWorkerErr() {
+	ns.workerErrMut.Lock()
+	ns.workerErr = true
+	ns.workerErrMut.Unlock()
 }
 
 func (ns *ndjsonSink) Finalize(ctx context.Context) error {
 	close(ns.resourceChan)
-	ns.resourceWG.Wait()
+	ns.workerCompleteWG.Wait()
 
-	ns.mut.Lock()
-	defer ns.mut.Unlock()
-	for _, fw := range ns.files {
-		fw.Lock()
-		defer fw.Unlock()
-		if err := fw.w.Close(); err != nil {
-			return err
-		}
+	ns.workerErrMut.Lock()
+	defer ns.workerErrMut.Unlock()
+	if ns.workerErr {
+		return ErrWorkerError
 	}
+
 	return nil
+}
+
+func recordNDJSONSinkError(errType string) {
+	if err := ndjsonSinkErrors.Record(context.Background(), 1, errType); err != nil {
+		log.Errorf("error recording ndjsonSinkErrors metric: %v", err)
+	}
 }

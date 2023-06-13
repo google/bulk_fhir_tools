@@ -384,16 +384,6 @@ func TestBulkFHIRFetchWrapper(t *testing.T) {
 
 			// Checks that should only run if wantError is nil.
 			if tc.wantError == nil {
-				// Check NDJSON outputs:
-				expectedFileSuffixToData := map[string][]byte{
-					"ExplanationOfBenefit_0.ndjson": file3Data,
-					"Coverage_0.ndjson":             file2Data,
-					"Patient_0.ndjson":              file1Data}
-
-				if tc.rectify {
-					// Replace expected data with the rectified version of resource:
-					expectedFileSuffixToData["Coverage_0.ndjson"] = file2DataRectified
-				}
 
 				if tc.setPendingJobURL {
 					if got := exportEndpointCalled.Value(); got > 0 {
@@ -402,20 +392,21 @@ func TestBulkFHIRFetchWrapper(t *testing.T) {
 				}
 
 				if !tc.unsetOutputDir {
-					for fileSuffix, wantData := range expectedFileSuffixToData {
-						fullPath := path.Join(outputDir, fileSuffix)
-						r, err := os.Open(fullPath)
-						if err != nil {
-							t.Errorf("unable to open file %s: %s", fullPath, err)
-						}
-						defer r.Close()
-						gotData, err := io.ReadAll(r)
-						if err != nil {
-							t.Errorf("error reading file %s: %v", fullPath, err)
-						}
-						if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, wantData)) {
-							t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, wantData)
-						}
+					// Check NDJSON outputs:
+					wantData := make([][]byte, 0, 3)
+					wantData = append(wantData, testhelpers.NormalizeJSON(t, file1Data))
+					wantData = append(wantData, testhelpers.NormalizeJSON(t, file3Data))
+
+					if tc.rectify {
+						wantData = append(wantData, testhelpers.NormalizeJSON(t, file2DataRectified))
+					} else {
+						wantData = append(wantData, testhelpers.NormalizeJSON(t, file2Data))
+					}
+
+					// Read written files:
+					gotData := testhelpers.ReadAllFHIRJSON(t, outputDir, true)
+					if !cmp.Equal(gotData, wantData, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+						t.Errorf("bulkFHIRFetchWrapper unexpected ndjson data written. got: %s, want: %s", gotData, wantData)
 					}
 				}
 
@@ -949,13 +940,12 @@ func TestBulkFHIRFetchWrapper_GCSBasedUpload(t *testing.T) {
 		t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 	}
 
-	objName := serverTransactionTime + "/Patient_0.ndjson"
-	obj, ok := gcsServer.GetObject(bucketName, objName)
-	if !ok {
-		t.Fatalf("gs://%s/%s not found", bucketName, objName)
-	}
-	if !bytes.Contains(obj.Data, []byte(patient1)) {
-		t.Errorf("gcs server unexpected data: got: %s, want: %s", obj.Data, patient1)
+	wantData := [][]byte{testhelpers.NormalizeJSON(t, file1Data)}
+
+	gotData := testhelpers.ReadAllGCSFHIRJSON(t, gcsServer, true)
+
+	if !cmp.Equal(gotData, wantData, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+		t.Errorf("gcs server unexpected FHIR data in GCS: got: %s, want: %s", gotData, wantData)
 	}
 
 	if !importCalled {
@@ -966,18 +956,9 @@ func TestBulkFHIRFetchWrapper_GCSBasedUpload(t *testing.T) {
 	}
 
 	// Check that files were also written to disk under outputDir
-	fullPath := path.Join(outputDir, "Patient_0.ndjson")
-	r, err := os.Open(fullPath)
-	if err != nil {
-		t.Errorf("unable to open file %s: %s", fullPath, err)
-	}
-	defer r.Close()
-	gotData, err := io.ReadAll(r)
-	if err != nil {
-		t.Errorf("error reading file %s: %v", fullPath, err)
-	}
-	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+	gotFileData := testhelpers.ReadAllFHIRJSON(t, outputDir, true)
+	if !cmp.Equal(gotFileData, wantData, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson data written. got: %s, want: %s", gotData, wantData)
 	}
 }
 
@@ -1082,18 +1063,10 @@ func TestBulkFHIRFetchWrapper_GeneralizedImport(t *testing.T) {
 	}
 
 	// Check that files were also written to disk under outputDir
-	fullPath := path.Join(outputDir, "Patient_0.ndjson")
-	r, err := os.Open(fullPath)
-	if err != nil {
-		t.Errorf("unable to open file %s: %s", fullPath, err)
-	}
-	defer r.Close()
-	gotData, err := io.ReadAll(r)
-	if err != nil {
-		t.Errorf("error reading file %s: %v", fullPath, err)
-	}
-	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+	gotData := testhelpers.ReadAllFHIRJSON(t, outputDir, true)
+	wantData := [][]byte{testhelpers.NormalizeJSON(t, file1Data)}
+	if !cmp.Equal(gotData, wantData) {
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output. got: %s, want: %s", gotData, wantData)
 	}
 
 }
@@ -1174,20 +1147,11 @@ func TestBulkFHIRFetchWrapper_GCSBasedSince(t *testing.T) {
 	}
 
 	// Check that files were also written to disk under outputDir
-	fullPath := path.Join(outputDir, "Patient_0.ndjson")
-	r, err := os.Open(fullPath)
-	if err != nil {
-		t.Errorf("unable to open file %s: %s", fullPath, err)
+	gotData := testhelpers.ReadAllFHIRJSON(t, outputDir, true)
+	wantData := [][]byte{testhelpers.NormalizeJSON(t, file1Data)}
+	if !cmp.Equal(gotData, wantData) {
+		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output. got: %s, want: %s", gotData, wantData)
 	}
-	defer r.Close()
-	gotData, err := io.ReadAll(r)
-	if err != nil {
-		t.Errorf("error reading file %s: %v", fullPath, err)
-	}
-	if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-		t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
-	}
-
 }
 
 func TestBulkFHIRFetchWrapper_GCSoutputDir(t *testing.T) {
@@ -1269,12 +1233,10 @@ func TestBulkFHIRFetchWrapper_GCSoutputDir(t *testing.T) {
 				t.Errorf("bulkFHIRFetchWrapper(%v) error: %v", cfg, err)
 			}
 
-			obj, ok := gcsServer.GetObject(tc.expectedGCSItemBucket, tc.expectedGCSItemRelativePath)
-			if !ok {
-				t.Errorf("gs://%s/%s not found", tc.expectedGCSItemBucket, tc.expectedGCSItemRelativePath)
-			}
-			if !bytes.Contains(obj.Data, file1Data) {
-				t.Errorf("gcs server unexpected data in prefix_Patient_0 file: got: %s, want: %s", obj.Data, file1Data)
+			wantData := [][]byte{testhelpers.NormalizeJSON(t, file1Data)}
+			gotData := testhelpers.ReadAllGCSFHIRJSON(t, gcsServer, true)
+			if !cmp.Equal(gotData, wantData, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+				t.Errorf("gcs server unexpected FHIR data in GCS: got: %s, want: %s", gotData, wantData)
 			}
 		})
 	}
@@ -1368,18 +1330,10 @@ func TestBulkFHIRFetchWrapper_GroupID(t *testing.T) {
 			}
 
 			// Check that files were also written to disk under outputDir
-			fullPath := path.Join(outputDir, "Patient_0.ndjson")
-			r, err := os.Open(fullPath)
-			if err != nil {
-				t.Errorf("unable to open file %s: %s", fullPath, err)
-			}
-			defer r.Close()
-			gotData, err := io.ReadAll(r)
-			if err != nil {
-				t.Errorf("error reading file %s: %v", fullPath, err)
-			}
-			if !cmp.Equal(testhelpers.NormalizeJSON(t, gotData), testhelpers.NormalizeJSON(t, file1Data)) {
-				t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output for file %s. got: %s, want: %s", fullPath, gotData, file1Data)
+			gotData := testhelpers.ReadAllFHIRJSON(t, outputDir, true)
+			wantData := [][]byte{testhelpers.NormalizeJSON(t, file1Data)}
+			if !cmp.Equal(gotData, wantData) {
+				t.Errorf("bulkFHIRFetchWrapper unexpected ndjson output. got: %s, want: %s", gotData, wantData)
 			}
 		})
 	}

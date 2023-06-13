@@ -15,11 +15,10 @@
 package processing_test
 
 import (
-	"bytes"
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -62,61 +61,12 @@ func TestNDJSONSink(t *testing.T) {
 	if err := sink.Finalize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if entries, err := os.ReadDir(tempdir); err != nil {
-		t.Fatal(err)
-	} else if len(entries) != 3 {
-		t.Errorf("directory %s contained %d entries; want 3", tempdir, len(entries))
-	}
 
-	wantFileNames := []string{
-		"Account_0.ndjson",
-		"Account_1.ndjson",
-		"Patient_0.ndjson",
-	}
+	wantDataLines := [][]byte{[]byte("foo"), []byte("bar"), []byte("baz"), []byte("qux")}
 
-	// wantData maps ResourceType to a slice of expected contents in file shards of that ResourceType.
-	// For example:
-	// "Patient": [][]byte{[]byte("one\n"), []byte("two\nthree\n")}
-	// would indicate that we expect two file shards for the Patient ResourceType. One shard should
-	// contain "one\n" and the other should contain "two\nthree\n". There is no constraint on which
-	// shard should contain which contents (e.g. "Patient_0.ndjson" doesn't have to contain "one\n",
-	// it could be the shard containing "two\nthree\n").
-	wantData := map[string][][]byte{
-		"Account": [][]byte{[]byte("foo\nbar\n"), []byte("baz\n")},
-		"Patient": [][]byte{[]byte("qux\n")},
-	}
-
-	// matchedData indicates whether the contents in the wantData shard index were found in a file
-	// shard for the ResourceType key.
-	matchedData := map[string][]bool{
-		"Account": make([]bool, len(wantData["Account"])),
-		"Patient": make([]bool, len(wantData["Patient"])),
-	}
-
-	for _, fn := range wantFileNames {
-		fullPath := filepath.Join(tempdir, fn)
-		gotData, err := os.ReadFile(fullPath)
-		if err != nil {
-			t.Errorf("could not read %s: %v", fullPath, err)
-		}
-		dataLines := bytes.Split(gotData, []byte("\n"))
-		resourceType := strings.Split(fn, "_")[0]
-		for i, wantShardData := range wantData[resourceType] {
-			wantDataLines := bytes.Split(wantShardData, []byte("\n"))
-
-			if cmp.Equal(dataLines, wantDataLines, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
-				matchedData[resourceType][i] = true
-			}
-		}
-	}
-
-	for resourceType, matchedSlice := range matchedData {
-		for i, matched := range matchedSlice {
-			if !matched {
-				t.Errorf("file shard contents for %s ResourceType were not found in any shard. want contents: %s", resourceType, wantData[resourceType][i])
-				t.Error(matchedData)
-			}
-		}
+	gotData := testhelpers.ReadAllFHIRJSON(t, tempdir, false)
+	if !cmp.Equal(gotData, wantDataLines, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+		t.Errorf("unexpected data in file shards. got: %v, want: %v", gotData, wantDataLines)
 	}
 }
 
@@ -158,57 +108,48 @@ func TestGCSNDJSONSink(t *testing.T) {
 		t.Fatalf("error in Finalize: %v", err)
 	}
 
-	wantFileNames := []string{
-		"Account_0.ndjson",
-		"Account_1.ndjson",
-		"Patient_0.ndjson",
+	wantDataLines := [][]byte{[]byte("foo"), []byte("bar"), []byte("baz"), []byte("qux")}
+	gotData := testhelpers.ReadAllGCSFHIRJSON(t, gcsServer, false)
+
+	if !cmp.Equal(gotData, wantDataLines, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
+		t.Errorf("unexpected data in file shards. got: %s, want: %s", gotData, wantDataLines)
 	}
 
-	// wantData maps ResourceType to a slice of expected contents in file shards of that ResourceType.
-	// For example:
-	// "Patient": [][]byte{[]byte("one\n"), []byte("two\nthree\n")}
-	// would indicate that we expect two file shards for the Patient ResourceType. One shard should
-	// contain "one\n" and the other should contain "two\nthree\n". There is no constraint on which
-	// shard should contain which contents (e.g. "Patient_0.ndjson" doesn't have to contain "one\n",
-	// it could be the shard containing "two\nthree\n").
-	wantData := map[string][][]byte{
-		"Account": [][]byte{[]byte("foo\nbar\n"), []byte("baz\n")},
-		"Patient": [][]byte{[]byte("qux\n")},
+}
+
+func TestNDJSONSink_WorkerError(t *testing.T) {
+	// This test will pass a fake GCS server that always returns errors.
+	ctx := context.Background()
+
+	testdata := []testResourceWrapper{
+		{resourceType: cpb.ResourceTypeCode_ACCOUNT, sourceURL: "url1", json: []byte("foo")},
+		{resourceType: cpb.ResourceTypeCode_ACCOUNT, sourceURL: "url1", json: []byte("bar")},
+		{resourceType: cpb.ResourceTypeCode_ACCOUNT, sourceURL: "url2", json: []byte("baz")},
 	}
 
-	// matchedData indicates whether the contents in the wantData shard index were found in a file
-	// shard for the ResourceType key.
-	matchedData := map[string][]bool{
-		"Account": make([]bool, len(wantData["Account"])),
-		"Patient": make([]bool, len(wantData["Patient"])),
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	sink, err := processing.NewGCSNDJSONSink(ctx, server.URL, "bucket", "directory")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, fn := range wantFileNames {
-		objName := directory + "/" + fn
-		obj, ok := gcsServer.GetObject(bucketName, objName)
-		if !ok {
-			t.Fatalf("gs://%s/%s not found", bucketName, objName)
-		}
-
-		dataLines := bytes.Split(obj.Data, []byte("\n"))
-		resourceType := strings.Split(fn, "_")[0]
-		for i, wantShardData := range wantData[resourceType] {
-			wantDataLines := bytes.Split(wantShardData, []byte("\n"))
-
-			if cmp.Equal(dataLines, wantDataLines, cmpopts.SortSlices(func(a, b []byte) bool { return string(a) < string(b) })) {
-				matchedData[resourceType][i] = true
+	var wg sync.WaitGroup
+	for _, td := range testdata {
+		wg.Add(1)
+		td := td
+		go func() {
+			if err := sink.Write(ctx, &td); err != nil {
+				t.Error(err)
 			}
-		}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	if err := sink.Finalize(ctx); !errors.Is(err, processing.ErrWorkerError) {
+		t.Errorf("unexpected error in sink.Finalize. got: %v, want: %v", err, processing.ErrWorkerError)
 	}
 
-	for resourceType, matchedSlice := range matchedData {
-		for i, matched := range matchedSlice {
-			if !matched {
-				t.Errorf("file shard contents for %s ResourceType were not found in any shard. want contents: %s", resourceType, wantData[resourceType][i])
-				t.Error(matchedData)
-			}
-		}
-	}
 }
 
 type testResourceWrapper struct {
