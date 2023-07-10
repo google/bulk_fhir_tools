@@ -270,7 +270,7 @@ func (gbfss *gcsBasedFHIRStoreSink) Finalize(ctx context.Context) error {
 	start := time.Now()
 	for !isDone && time.Now().Before(deadline) {
 		time.Sleep(gbfss.gcsImportJobPeriod)
-		log.Infof("GCS Import Job has been running for %s, still pending...", time.Since(start)/time.Minute)
+		log.Infof("GCS Import Job has been running for %s, still pending...", time.Since(start))
 
 		isDone, err = gbfss.fhirStoreClient.CheckGCSImportStatus(opName)
 		if err != nil {
