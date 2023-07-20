@@ -296,6 +296,37 @@ func TestDirectFHIRStoreSink_BatchDefaultBatchSize(t *testing.T) {
 		if len(gotBundle.Entry) != 5 {
 			t.Errorf("unexpected batch size. got: %v, want: %v", len(gotBundle.Entry), 5)
 		}
+
+		w.WriteHeader(200)
+		w.Write([]byte(`{
+			"entry": [
+				{
+					"response": {
+						"status": "201 Created"
+					}
+				},
+				{
+					"response": {
+						"status": "201 Created"
+					}
+				},
+				{
+					"response": {
+						"status": "201 Created"
+					}
+				},
+				{
+					"response": {
+						"status": "201 Created"
+					}
+				},
+				{
+					"response": {
+						"status": "201 Created"
+					}
+				}
+			]
+		}`))
 	}))
 	numWorkers := 1
 
@@ -376,8 +407,23 @@ func TestDirectFHIRStoreSink_BatchErrors(t *testing.T) {
 				outputPrefix = t.TempDir()
 			}
 
+			body := []byte(`{
+				"entry": [
+					{
+						"response": {
+							"status": "201 Created"
+						}
+					},
+					{
+						"response": {
+							"status": "201 Created"
+						}
+					}
+				]
+			}`)
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				w.WriteHeader(500)
+				w.Write([]byte(body))
 			}))
 			defer testServer.Close()
 
@@ -416,7 +462,12 @@ func TestDirectFHIRStoreSink_BatchErrors(t *testing.T) {
 			if tc.setFHIRErrorFileDir {
 				expectedErrors := make([]testhelpers.ErrorNDJSONLine, len(resources))
 				for i, r := range resources {
-					expectedErrors[i] = testhelpers.ErrorNDJSONLine{Err: "error from API server: status 500 500 Internal Server Error: ", FHIRResource: string(r.Data)}
+					expectedError := fhirstore.BundleError{
+						ResponseStatusCode: 500,
+						ResponseStatusText: "500 Internal Server Error",
+						ResponseBytes:      body,
+					}
+					expectedErrors[i] = testhelpers.ErrorNDJSONLine{Err: expectedError.Error(), FHIRResource: string(r.Data)}
 				}
 				testhelpers.CheckErrorNDJSONFile(t, outputPrefix, expectedErrors)
 			}

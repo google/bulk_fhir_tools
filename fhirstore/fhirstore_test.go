@@ -142,29 +142,67 @@ func TestUploadBatch(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResponse", func(t *testing.T) {
-		errBody := []byte("error")
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.WriteHeader(500)
-			w.Write(errBody)
-		}))
-		defer server.Close()
+	for _, tc := range []struct {
+		name           string
+		wantStatus     int
+		wantStatusText string
+	}{
+		{
+			name:           "ErrorInsideBundle",
+			wantStatus:     200,
+			wantStatusText: "200 OK",
+		},
+		{
+			name:           "ErrorWholeBundle",
+			wantStatus:     500,
+			wantStatusText: "500 Internal Server Error",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{
+				"entry": [
+					{
+						"response": {
+							"status": "400 Bad Request",
+							"outcome": {
+								"issue": [
+									{
+										"code": "value",
+										"details": {
+											"text": "invalid_references"
+										},
+										"diagnostics": "resolving references: conditional reference has no matching resource",
+										"expression": ["Patient.contained[0]"],
+										"severity": "error"
+									}
+								]
+							}
+						}
+					}
+				]
+			}`)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(tc.wantStatus)
+				w.Write(body)
+			}))
+			defer server.Close()
 
-		c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
-			CloudHealthcareEndpoint: server.URL,
-			ProjectID:               projectID,
-			Location:                location,
-			DatasetID:               datasetID,
-			FHIRStoreID:             fhirStoreID,
+			c, err := fhirstore.NewClient(context.Background(), &fhirstore.Config{
+				CloudHealthcareEndpoint: server.URL,
+				ProjectID:               projectID,
+				Location:                location,
+				DatasetID:               datasetID,
+				FHIRStoreID:             fhirStoreID,
+			})
+			if err != nil {
+				t.Errorf(uploadBatchWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
+			}
+
+			uploadErr := c.UploadBatch(inputJSONs)
+
+			checkInternalServerBundleError(t, uploadErr, fhirstore.BundleError{ResponseStatusCode: tc.wantStatus, ResponseStatusText: tc.wantStatusText, ResponseBytes: testhelpers.NormalizeJSON(t, body)})
 		})
-		if err != nil {
-			t.Errorf(uploadBatchWithParams+" encountered an unexpected error when creating the FHIR store client: %v", err)
-		}
-
-		uploadErr := c.UploadBatch(inputJSONs)
-
-		checkInternalServerBundleError(t, uploadErr, errBody)
-	})
+	}
 }
 
 func TestUploadBundle(t *testing.T) {
@@ -178,6 +216,7 @@ func TestUploadBundle(t *testing.T) {
 
 	t.Run("ValidResponse", func(t *testing.T) {
 		metrics.ResetAll()
+
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			bundlePath := fmt.Sprintf("/v1/projects/%s/locations/%s/datasets/%s/fhirStores/%s/fhir?", projectID, location, datasetID, fhirStoreID)
 			if req.URL.String() != bundlePath {
@@ -194,6 +233,17 @@ func TestUploadBundle(t *testing.T) {
 			if !cmp.Equal(data, inputBundle) {
 				t.Errorf("unexpected executeBundle request body, got: %v, want: %v", data, inputBundle)
 			}
+
+			w.WriteHeader(200)
+			w.Write([]byte(`{
+				"entry": [
+					{
+						"response": {
+							"status": "201 Created"
+						}
+					}
+				]
+			}`))
 		}))
 		defer server.Close()
 
@@ -219,14 +269,39 @@ func TestUploadBundle(t *testing.T) {
 		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-counter"].Count); diff != "" {
 			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
 		}
+		wantCount = map[string]int64{"201 Created": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-resource-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+		}
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
 		metrics.ResetAll()
-		errBody := []byte("error")
+		body := []byte(`{
+			"entry": [
+				{
+					"response": {
+						"status": "400 Bad Request",
+						"outcome": {
+							"issue": [
+								{
+									"code": "value",
+									"details": {
+										"text": "invalid_references"
+									},
+									"diagnostics": "resolving references: conditional reference has no matching resource",
+									"expression": ["Patient.contained[0]"],
+									"severity": "error"
+								}
+							]
+						}
+					}
+				}
+			]
+		}`)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(500)
-			w.Write(errBody)
+			w.Write(body)
 		}))
 		defer server.Close()
 
@@ -246,7 +321,7 @@ func TestUploadBundle(t *testing.T) {
 			t.Errorf(uploadBundleWithParams+" unexpected error. got: %v, want: %v", err, fhirstore.ErrorAPIServer)
 		}
 
-		checkInternalServerBundleError(t, uploadErr, errBody)
+		checkInternalServerBundleError(t, uploadErr, fhirstore.BundleError{ResponseStatusCode: 500, ResponseStatusText: "500 Internal Server Error", ResponseBytes: testhelpers.NormalizeJSON(t, body)})
 
 		gotCount, _, err := metrics.GetResults()
 		if err != nil {
@@ -254,6 +329,10 @@ func TestUploadBundle(t *testing.T) {
 		}
 		wantCount := map[string]int64{"Internal Server Error": 1}
 		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-counter"].Count); diff != "" {
+			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
+		}
+		wantCount = map[string]int64{"400 Bad Request": 1}
+		if diff := cmp.Diff(wantCount, gotCount["fhir-store-batch-upload-resource-counter"].Count); diff != "" {
 			t.Errorf("GetResults() return unexpected count (-want +got): \n%s", diff)
 		}
 	})
@@ -405,18 +484,10 @@ func TestCheckGCSImportStatus(t *testing.T) {
 }
 
 // checkInternalServerBundleError checks that the provided errorToCheck is a
-// *fhirstore.BundleError and that the BundleError matches is a 500 Internal
-// Server error with the provided body. It also checks that the errors.Is
-// resolves the error as a fhirstore.ErrorAPIServer.
-func checkInternalServerBundleError(t *testing.T, errorToCheck error, errBody []byte) {
+// *fhirstore.BundleError and matches the expectedError.
+func checkInternalServerBundleError(t *testing.T, errorToCheck error, wantError fhirstore.BundleError) {
 	if !errors.Is(errorToCheck, fhirstore.ErrorAPIServer) {
 		t.Errorf("unexpected error. got: %v, want: %v", errorToCheck, fhirstore.ErrorAPIServer)
-	}
-
-	expectedBundleError := &fhirstore.BundleError{
-		ResponseStatusCode: 500,
-		ResponseBytes:      errBody,
-		ResponseStatusText: "500 Internal Server Error",
 	}
 
 	bundleError, ok := errorToCheck.(*fhirstore.BundleError)
@@ -424,8 +495,10 @@ func checkInternalServerBundleError(t *testing.T, errorToCheck error, errBody []
 		t.Errorf("expected error to be returned to be a *BundleError")
 	}
 
-	if diff := cmp.Diff(expectedBundleError, bundleError); diff != "" {
-		t.Errorf("unexpected bundleError with diff: %v", diff)
+	bundleError.ResponseBytes = testhelpers.NormalizeJSON(t, bundleError.ResponseBytes)
+
+	if diff := cmp.Diff(wantError, *bundleError); diff != "" {
+		t.Errorf("unexpected bundleError with diff (-want +got): %v", diff)
 	}
 }
 

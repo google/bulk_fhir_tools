@@ -134,6 +134,8 @@ func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, expected
 			oneBatchWithExpectedSize = true
 			oneBatchWithExpectedSizeMutex.Unlock()
 		}
+
+		var response bundleResponses
 		for _, gotEntry := range gotBundle.Entry {
 			gotResource := []byte(gotEntry.Resource)
 			expectedResourceIdx, ok := getIndexOf(t, gotResource, expectedFHIRResources)
@@ -160,7 +162,19 @@ func FHIRStoreServerBatch(t *testing.T, expectedFHIRResources [][]byte, expected
 			expectedResourceWasUploadedMutex.Lock()
 			expectedResourceWasUploaded[expectedResourceIdx] = true
 			expectedResourceWasUploadedMutex.Unlock()
+
+			r := bundleResponse{}
+			r.Response.Status = "201 Created"
+			response.Entry = append(response.Entry, r)
 		}
+
+		body, err := json.Marshal(response)
+		if err != nil {
+			t.Errorf("error marshalling the bundle response: %v", err)
+		}
+
+		w.WriteHeader(200)
+		w.Write(body)
 	}))
 
 	t.Cleanup(func() {
@@ -246,6 +260,17 @@ func getIndexOf(t *testing.T, fhirResource []byte, fhirResources [][]byte) (int,
 		}
 	}
 	return 0, false
+}
+
+type bundleResponse struct {
+	Response struct {
+		Status  string          `json:"status"`
+		Outcome json.RawMessage `json:"outcome"`
+	} `json:"response"`
+}
+
+type bundleResponses struct {
+	Entry []bundleResponse `json:"entry"`
 }
 
 type fhirBundle struct {

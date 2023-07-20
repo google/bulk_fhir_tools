@@ -23,15 +23,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 
 	healthcare "google.golang.org/api/healthcare/v1"
 	"google.golang.org/api/option"
+	log "github.com/google/medical_claims_tools/internal/logger"
 	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
 	"github.com/google/medical_claims_tools/internal/metrics"
 )
 
 var fhirStoreUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-upload-counter", "Count of uploads to FHIR Store by FHIR Resource Type and HTTP Status.", "1", aggregation.Count, "FHIRResourceType", "HTTPStatus")
-var fhirStoreBatchUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-counter", "Count of FHIR Bundles uploaded to FHIR Store by HTTP Status.", "1", aggregation.Count, "HTTPStatus")
+var fhirStoreBatchUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-counter", "Count of FHIR Bundles uploaded to FHIR Store by HTTP Status. Even if the bundle succeeds FHIR resources in the bundle may fail. See fhir-store-batch-upload-resource-counter for status of individual FHIR resources.", "1", aggregation.Count, "HTTPStatus")
+var fhirStoreBatchUploadResourceCounter *metrics.Counter = metrics.NewCounter("fhir-store-batch-upload-resource-counter", "Unpacks the FHIR Bundles Response and counts the individiual FHIR Resources uploaded to FHIR Store by HTTP Status.", "1", aggregation.Count, "HTTPStatus")
 
 // DefaultHealthcareEndpoint represents the default cloud healthcare API
 // endpoint. This should be passed to UploadResource, unless in a test
@@ -108,7 +111,9 @@ func (c *Client) UploadResource(fhirJSON []byte) error {
 	}
 	defer resp.Body.Close()
 
-	fhirStoreUploadCounter.Record(context.Background(), 1, resourceType, http.StatusText(resp.StatusCode))
+	if err := fhirStoreUploadCounter.Record(context.Background(), 1, resourceType, http.StatusText(resp.StatusCode)); err != nil {
+		return err
+	}
 
 	if resp.StatusCode > 299 {
 		respBytes, err := ioutil.ReadAll(resp.Body)
@@ -151,17 +156,84 @@ func (c *Client) UploadBundle(fhirBundleJSON []byte) error {
 	}
 	defer resp.Body.Close()
 
-	fhirStoreBatchUploadCounter.Record(context.Background(), 1, http.StatusText(resp.StatusCode))
+	if err := fhirStoreBatchUploadCounter.Record(context.Background(), 1, http.StatusText(resp.StatusCode)); err != nil {
+		return err
+	}
 
-	if resp.StatusCode > 299 {
-		respBytes, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("could not read response: %v", err)
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("could not read response: %v", err)
+	}
+
+	var resps BundleResponses
+	err = json.Unmarshal(respBytes, &resps)
+	if err != nil {
+		return fmt.Errorf("could not unmarshal response: %v", err)
+	}
+
+	errInsideBundle := false
+	for _, r := range resps.Entry {
+		if err := fhirStoreBatchUploadResourceCounter.Record(context.Background(), 1, r.Response.Status); err != nil {
+			return err
 		}
+
+		// According to the FHIR spec Response.status shall start with a 3 digit HTTP code
+		// (https://build.fhir.org/bundle-definitions.html#Bundle.entry.response.status)
+		scode, err := strconv.Atoi(r.Response.Status[:3])
+		if err != nil {
+			return err
+		}
+		if scode > 299 {
+			errInsideBundle = true
+			log.Errorf("error uploading fhir resource in bundle: %s", r.Response.Outcome)
+		}
+	}
+
+	if resp.StatusCode > 299 || errInsideBundle {
 		return &BundleError{ResponseStatusCode: resp.StatusCode, ResponseStatusText: resp.Status, ResponseBytes: respBytes}
 	}
 
 	return nil
+}
+
+// BundleResponse holds a single FHIR Bundle response from the fhirService.ExecuteBundle call.
+type BundleResponse struct {
+	Response struct {
+		Status  string `json:"status"`
+		Outcome struct {
+			Issue json.RawMessage `json:"issue"`
+		} `json:"outcome,omitempty"`
+	} `json:"response"`
+}
+
+// BundleResponses holds the FHIR Bundle responses from the fhirService.ExecuteBundle call.
+type BundleResponses struct {
+	Entry []BundleResponse `json:"entry"`
+}
+
+// BundleError represents an error returned from GCP FHIR Store when attempting
+// to upload a FHIR bundle. The Bundle may succeed even if FHIR resources inside
+// the bundle failed to upload. In that case ResponseStatusCode and
+// ResponseStatusText hold the status of the bundle while ResponseBytes may have
+// details on the individual resources.
+type BundleError struct {
+	// ResponseStatusCode and ResponseStatusText hold the status for the bundle.
+	// Within the bundle individual FHIR resources may have still failed to
+	// upload.
+	ResponseStatusCode int
+	ResponseStatusText string
+	ResponseBytes      []byte
+}
+
+// Error returns a string version of error information.
+func (b *BundleError) Error() string {
+	return fmt.Sprintf("error from API server, StatusCode: %d StatusText: %s Response: %s", b.ResponseStatusCode, b.ResponseStatusText, b.ResponseBytes)
+}
+
+// Is returns true if this error should be considered equivalent to the target
+// error (and makes this work smoothly with errors.Is calls)
+func (b *BundleError) Is(target error) bool {
+	return target == ErrorAPIServer
 }
 
 // ImportFromGCS triggers a long-running FHIR store import job from a
@@ -201,30 +273,6 @@ func (c *Client) CheckGCSImportStatus(opName string) (isDone bool, err error) {
 		return false, fmt.Errorf("error in operationsService.Get(%q): %v", opName, err)
 	}
 	return op.Done, nil
-}
-
-// BundleError represents an error returned from GCP FHIR Store when attempting
-// to upload a FHIR bundle. BundleError holds some structured error information
-// that may be of interest to the error consumer, including the error response
-// bytes (that may indicate more details on what particular resources in the
-// bundle had errors).
-// TODO(b/225916126): try to figure out if we can detect the format of error in
-// ResponseBytes and unpack that in a structured way for consumers.
-type BundleError struct {
-	ResponseStatusCode int
-	ResponseStatusText string
-	ResponseBytes      []byte
-}
-
-// Error returns a string version of error information.
-func (b *BundleError) Error() string {
-	return fmt.Sprintf("error from API server: status %d %s: %s", b.ResponseStatusCode, b.ResponseStatusText, b.ResponseBytes)
-}
-
-// Is returns true if this error should be considered equivalent to the target
-// error (and makes this work smoothly with errors.Is calls)
-func (b *BundleError) Is(target error) bool {
-	return target == ErrorAPIServer
 }
 
 type fhirBundle struct {
