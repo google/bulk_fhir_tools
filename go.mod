@@ -39,11 +39,11 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/prometheus v0.35.0 // indirect
 	github.com/serenize/snaker v0.0.0-20201027110005-a7ad2135616e // indirect
-	golang.org/x/net v0.5.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.4.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.4.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230131230820-1c016267d619 // indirect
