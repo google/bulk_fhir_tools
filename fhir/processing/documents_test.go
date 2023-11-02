@@ -24,10 +24,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fhir/processing"
-	"github.com/google/medical_claims_tools/internal/metrics"
-	"github.com/google/medical_claims_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/fhir/processing"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/internal/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )

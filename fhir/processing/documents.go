@@ -26,11 +26,11 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
-	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/gcs"
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
-	"github.com/google/medical_claims_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/gcs"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	dpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"

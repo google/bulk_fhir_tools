@@ -1,4 +1,4 @@
-module github.com/google/medical_claims_tools
+module github.com/google/bulk_fhir_tools
 
 go 1.19
 

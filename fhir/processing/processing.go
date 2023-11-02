@@ -23,8 +23,8 @@ import (
 
 	"github.com/google/fhir/go/fhirversion"
 	"github.com/google/fhir/go/jsonformat"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
-	"github.com/google/medical_claims_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	rpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"

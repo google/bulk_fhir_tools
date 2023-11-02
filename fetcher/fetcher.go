@@ -24,11 +24,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fhir"
-	"github.com/google/medical_claims_tools/fhir/processing"
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/fhir"
+	"github.com/google/bulk_fhir_tools/fhir/processing"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )

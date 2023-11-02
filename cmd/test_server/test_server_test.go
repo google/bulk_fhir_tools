@@ -26,7 +26,7 @@ import (
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/medical_claims_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
 )
 
 // This includes some basic __sanity__ tests of the test_server.

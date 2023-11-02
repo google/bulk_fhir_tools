@@ -27,9 +27,9 @@ import (
 
 	healthcare "google.golang.org/api/healthcare/v1"
 	"google.golang.org/api/option"
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
-	"github.com/google/medical_claims_tools/internal/metrics"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
 )
 
 var fhirStoreUploadCounter *metrics.Counter = metrics.NewCounter("fhir-store-upload-counter", "Count of uploads to FHIR Store by FHIR Resource Type and HTTP Status.", "1", aggregation.Count, "FHIRResourceType", "HTTPStatus")

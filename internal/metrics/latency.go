@@ -19,10 +19,10 @@ import (
 	"errors"
 	"sync"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/fake"
-	"github.com/google/medical_claims_tools/internal/metrics/local"
-	"github.com/google/medical_claims_tools/internal/metrics/opencensus"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/fake"
+	"github.com/google/bulk_fhir_tools/internal/metrics/local"
+	"github.com/google/bulk_fhir_tools/internal/metrics/opencensus"
 )
 
 // Latency holds an implementation of the latencyInterface. Call NewLatency() to get a Latency.

@@ -31,18 +31,18 @@ import (
 	"testing"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
-	"github.com/google/medical_claims_tools/gcs"
-	"github.com/google/medical_claims_tools/internal/metrics"
-	"github.com/google/medical_claims_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/gcs"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/internal/testhelpers"
 
 	"flag"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fetcher"
-	"github.com/google/medical_claims_tools/fhir/processing"
-	"github.com/google/medical_claims_tools/fhirstore"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/fetcher"
+	"github.com/google/bulk_fhir_tools/fhir/processing"
+	"github.com/google/bulk_fhir_tools/fhirstore"
 )
 
 func TestBulkFHIRFetchWrapper(t *testing.T) {

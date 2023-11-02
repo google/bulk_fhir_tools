@@ -18,8 +18,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/medical_claims_tools/fhir"
-	"github.com/google/medical_claims_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/fhir"
+	"github.com/google/bulk_fhir_tools/internal/testhelpers"
 )
 
 func TestRectifyBCDA(t *testing.T) {

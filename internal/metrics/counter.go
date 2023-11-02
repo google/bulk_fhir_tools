@@ -19,11 +19,11 @@ import (
 	"errors"
 	"sync"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
-	"github.com/google/medical_claims_tools/internal/metrics/fake"
-	"github.com/google/medical_claims_tools/internal/metrics/local"
-	"github.com/google/medical_claims_tools/internal/metrics/opencensus"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics/fake"
+	"github.com/google/bulk_fhir_tools/internal/metrics/local"
+	"github.com/google/bulk_fhir_tools/internal/metrics/opencensus"
 )
 
 // Counter holds an implementation of the counterInterface. Call NewCounter() to get a Counter.

@@ -33,7 +33,7 @@ import (
 	"flag"
 	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
-	"github.com/google/medical_claims_tools/fhir"
+	"github.com/google/bulk_fhir_tools/fhir"
 )
 
 var (

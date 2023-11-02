@@ -19,7 +19,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/google/medical_claims_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/internal/testhelpers"
 )
 
 func TestGCSIsBucketInProjectId(t *testing.T) {

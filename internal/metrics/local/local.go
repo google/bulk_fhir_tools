@@ -23,7 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
 )
 
 var (

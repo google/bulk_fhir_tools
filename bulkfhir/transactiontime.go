@@ -23,10 +23,10 @@ import (
 	"os"
 	"time"
 
-	log "github.com/google/medical_claims_tools/internal/logger"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
 	"cloud.google.com/go/storage"
-	"github.com/google/medical_claims_tools/fhir"
-	"github.com/google/medical_claims_tools/gcs"
+	"github.com/google/bulk_fhir_tools/fhir"
+	"github.com/google/bulk_fhir_tools/gcs"
 )
 
 // ErrUnsetTransactionTime is returned from TransactionTime.Get if it is

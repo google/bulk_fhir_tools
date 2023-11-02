@@ -26,8 +26,8 @@ import (
 	"time"
 
 	"contrib.go.opencensus.io/exporter/stackdriver"
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
 )
 
 // implementation should be set by Init and is used to decide which Close to

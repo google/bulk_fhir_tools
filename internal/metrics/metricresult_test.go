@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
 )
 
 func TestCounterResultWithTag(t *testing.T) {

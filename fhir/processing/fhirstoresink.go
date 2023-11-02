@@ -25,12 +25,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/medical_claims_tools/bulkfhir"
-	"github.com/google/medical_claims_tools/fhir"
-	"github.com/google/medical_claims_tools/fhirstore"
-	log "github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
-	"github.com/google/medical_claims_tools/internal/metrics"
+	"github.com/google/bulk_fhir_tools/bulkfhir"
+	"github.com/google/bulk_fhir_tools/fhir"
+	"github.com/google/bulk_fhir_tools/fhirstore"
+	log "github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics"
 )
 
 // ErrUploadFailures is returned (wrapped) when uploads to FHIR Store have

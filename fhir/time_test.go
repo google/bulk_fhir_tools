@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/medical_claims_tools/fhir"
+	"github.com/google/bulk_fhir_tools/fhir"
 )
 
 func TestParseFHIRInstant(t *testing.T) {

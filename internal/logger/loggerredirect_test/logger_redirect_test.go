@@ -26,8 +26,8 @@ import (
 	gcpLog "cloud.google.com/go/logging"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
-	"github.com/google/medical_claims_tools/internal/logger"
-	"github.com/google/medical_claims_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/internal/logger"
+	"github.com/google/bulk_fhir_tools/internal/testhelpers"
 )
 
 // TestFallbackGCPLoggerAfterClose tests a fallback behavior if the user mistakenly makes logging

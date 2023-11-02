@@ -22,7 +22,7 @@ import (
 	"go.opencensus.io/metric/metricdata"
 	"go.opencensus.io/metric/metricexport"
 	metrictest "go.opencensus.io/metric/test"
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
 )
 
 type counter interface {

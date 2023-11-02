@@ -19,7 +19,7 @@ package fake
 import (
 	"context"
 
-	"github.com/google/medical_claims_tools/internal/metrics/aggregation"
+	"github.com/google/bulk_fhir_tools/internal/metrics/aggregation"
 )
 
 // Counter is a no-op implementation of a counter for tests.
