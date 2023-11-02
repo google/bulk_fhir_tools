@@ -89,9 +89,9 @@ main:
                         echo Sending results to bucket: ${BUCKET} && \n
                         echo $(apt-get -y update) && \n
                         echo $(apt-get -y install git-all) && \n
-                        echo $(git clone https://github.com/google/medical_claims_tools.git) && \n
-                        cd medical_claims_tools/ && \n
-                        go version && \n
+                        echo $(git clone https://github.com/google/bulk_fhir_tools.git) && \n
+                        cd bulk_fhir_tools/ && \n
+                        echo $(ls) && \n
                         echo building go file && \n
                         go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go && \n
                         echo $( ls .) && \n

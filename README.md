@@ -1,9 +1,9 @@
-# Medical Claims Tools
-<a href="https://github.com/google/medical_claims_tools/actions">
-  <img src="https://github.com/google/medical_claims_tools/workflows/go_test/badge.svg" alt="GitHub Actions Build Status" />
+# Bulk FHIR Tools
+<a href="https://github.com/google/bulk_fhir_tools/actions">
+  <img src="https://github.com/google/bulk_fhir_tools/workflows/go_test/badge.svg" alt="GitHub Actions Build Status" />
 </a>
-<a href="https://godoc.org/github.com/google/medical_claims_tools">
-  <img src="https://godoc.org/github.com/google/medical_claims_tools?status.svg" alt="Go Documentation" />
+<a href="https://godoc.org/github.com/google/bulk_fhir_tools">
+  <img src="https://godoc.org/github.com/google/bulk_fhir_tools?status.svg" alt="Go Documentation" />
 </a>
 
 👀 _Please tell us more about your interest in or usage of these tools at our [survey here](https://docs.google.com/forms/d/e/1FAIpQLSdmWHaGc41gWiobMT6kNd0PGPPeWGeS-LyG6CrGZ79moaUIEQ/viewform)!_
@@ -138,11 +138,11 @@ To set up the `bulk_fhir_fetch` program to run periodically on a GCP VM, take a 
 
 If cloning the repo for production use, we recommend cloning the repository at
 the latest released version, which can be found in the
-[releases](https://github.com/google/medical_claims_tools/releases)
+[releases](https://github.com/google/bulk_fhir_tools/releases)
 tab. For example for version `v0.1.5`:
 
 ```sh
-git clone --branch v0.1.5 https://github.com/google/medical_claims_tools.git
+git clone --branch v0.1.5 https://github.com/google/bulk_fhir_tools.git
 ```
 
 ## Build
@@ -161,3 +161,6 @@ directory.
 This repository also contains example [analysis notebooks](analytics)
 using synthetic data that showcase query patterns once the data is in FHIR Store
 and BigQuery.
+
+## Trademark
+FHIR® is the registered trademark of HL7 and is used with the permission of HL7.

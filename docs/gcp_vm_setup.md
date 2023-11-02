@@ -1,4 +1,4 @@
-# GCP VM Setup for medical_claims_tools
+# GCP VM Setup
 
 This documentation details how to setup a standard GCP Debian VM to build and
 run `bulk_fhir_fetch` from source. It also details how to configure the VM service
@@ -36,14 +36,15 @@ account to have the ability to upload to FHIR store.
         command will look something like `rm -rf /usr/local/go && tar -C
         /usr/local -xzf <installer name>`
 
-4.  Clone the medical_claims_tools repository
+4.  Clone the repository
 
     ```sh
-    git clone https://github.com/google/medical_claims_tools
+    git clone https://github.com/google/bulk_fhir_tools
     ```
 
 5.  Build `bulk_fhir_fetch`:
 
     ```sh
+    cd bulk_fhir_tools
     go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go
     ```
