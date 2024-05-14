@@ -27,7 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/bulk_fhir_tools/fhirstore"
 	"github.com/google/bulk_fhir_tools/internal/metrics"
-	"github.com/google/bulk_fhir_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/testhelpers"
 
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 )

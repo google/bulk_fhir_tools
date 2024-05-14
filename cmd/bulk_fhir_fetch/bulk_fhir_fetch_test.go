@@ -33,7 +33,7 @@ import (
 	cpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/codes_go_proto"
 	"github.com/google/bulk_fhir_tools/gcs"
 	"github.com/google/bulk_fhir_tools/internal/metrics"
-	"github.com/google/bulk_fhir_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/testhelpers"
 
 	"flag"
 

@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/bulk_fhir_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/testhelpers"
 )
 
 func TestInMemoryTransactionTimeStore(t *testing.T) {

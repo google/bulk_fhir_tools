@@ -24,7 +24,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"github.com/google/bulk_fhir_tools/internal/logger"
-	"github.com/google/bulk_fhir_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/testhelpers"
 )
 
 func TestGCPLogger(t *testing.T) {

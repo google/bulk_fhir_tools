@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/bulk_fhir_tools/fhir"
-	"github.com/google/bulk_fhir_tools/internal/testhelpers"
+	"github.com/google/bulk_fhir_tools/testhelpers"
 )
 
 func TestRectifyBCDA(t *testing.T) {
