@@ -1449,29 +1449,40 @@ func TestBuildBulkFHIRFetchConfig_FHIRResourceTypesError(t *testing.T) {
 
 func TestValidateConfig_EnforceGCPBucketInSameProject(t *testing.T) {
 	cases := []struct {
-		name    string
-		gcsPath string
-		wantErr error
+		name         string
+		bucket       string
+		project      string
+		createBucket bool
+		wantErr      error
 	}{
 		{
-			name:    "Bucket In Project",
-			gcsPath: "gs://bucketName/patients/",
-			wantErr: nil,
+			name:         "Bucket In Project",
+			bucket:       "bucketName",
+			project:      "project",
+			createBucket: true,
+			wantErr:      nil,
 		},
 		{
-			name:    "Bucket Not In Project",
-			gcsPath: "gs://differentBucketName/patients",
-			wantErr: &errGCSBucketNotInProject{Bucket: "differentBucketName", Project: "project"},
+			name:         "Bucket Not In Project",
+			bucket:       "differentBucketName",
+			project:      "project",
+			createBucket: false,
+			wantErr:      &errGCSBucketNotInProject{Bucket: "differentBucketName", Project: "project"},
 		},
 	}
 	for _, tc := range cases {
 		gcsServer := testhelpers.NewGCSServer(t)
+		gcsPath := "gs://" + tc.bucket + "/" + tc.project
+
+		if tc.createBucket {
+			gcsServer.AddObject(tc.bucket, "fakeObject.txt", testhelpers.GCSObjectEntry{Data: []byte("Hello World!")})
+		}
 
 		cfg := bulkFHIRFetchConfig{
 			gcsEndpoint:                   gcsServer.URL(),
 			clientID:                      "clientID",
 			clientSecret:                  "clientSecret",
-			outputDir:                     tc.gcsPath,
+			outputDir:                     gcsPath,
 			baseServerURL:                 "url",
 			authURL:                       "url",
 			fhirStoreGCPProject:           "project",

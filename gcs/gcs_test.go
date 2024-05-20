@@ -41,10 +41,14 @@ func TestGCSIsBucketInProjectId(t *testing.T) {
 	}
 	for _, tc := range cases {
 		server := testhelpers.NewGCSServer(t)
+		ctx := context.Background()
 
-		gcsClient, err := NewClient(context.Background(), tc.bucketName, server.URL())
+		gcsClient, err := NewClient(ctx, tc.bucketName, server.URL())
 		if err != nil {
 			t.Error("Unexpected error when getting NewClient: ", err)
+		}
+		if tc.wantIsBucketInProject {
+			server.AddObject(tc.bucketName, "testFile", testhelpers.GCSObjectEntry{Data: []byte("Hello World")})
 		}
 
 		gotIsBucketInProject, err := gcsClient.IsBucketInProject(context.Background(), "project")

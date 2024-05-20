@@ -23,6 +23,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -107,36 +109,84 @@ func (gs *GCSServer) URL() string {
 }
 
 const uploadPathPrefix = "/upload/storage/v1/b/"
-const listPathPrefix = "/b"
+
+// this should match for paths like:
+// /b - list buckets
+// /b/bucketName/o - list objects
+var listPathRegex = regexp.MustCompile(`^/b(?:/.*/o|)$`)
 
 func (gs *GCSServer) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if strings.HasPrefix(req.URL.Path, uploadPathPrefix) {
 		gs.handleUpload(w, req)
-	} else if strings.HasPrefix(req.URL.Path, listPathPrefix) {
+	} else if listPathRegex.MatchString(req.URL.Path) {
 		gs.handleList(w, req)
 	} else {
 		gs.handleDownload(w, req)
 	}
 }
 
+// A simple struct to hold the json response for the list buckets and objects calls.
+type objectIterResponse struct {
+	Kind          string
+	NextPageToken string
+	Items         []objectAttrsResponse
+}
+
+// Holds the file or bucket attributes for the list buckets / objects calls.
+type objectAttrsResponse struct {
+	Kind   string
+	ID     string
+	Name   string
+	Bucket string
+	Prefix string
+}
+
+// handleList handles the list buckets and list objects calls.
+// Does not support pagination (will only ever return a single item).
+// TODO b/341405229 - add support for arbitrary buckets.
 func (gs *GCSServer) handleList(w http.ResponseWriter, req *http.Request) {
-	r := struct {
-		Kind          string
-		NextPageToken string
-		Items         []struct {
-			Kind string
-			ID   string
-			Name string
+	var r objectIterResponse
+	if req.URL.Path == "/b" {
+		// List all buckets.
+		r = objectIterResponse{
+			Kind:  "storage#buckets",
+			Items: []objectAttrsResponse{},
 		}
-	}{
-		Kind:          "storage#buckets",
-		NextPageToken: "",
-		Items: []struct {
-			Kind string
-			ID   string
-			Name string
-		}{{Kind: "storage#bucket", ID: "bucketName", Name: "bucketName"}},
+		for key := range gs.objects {
+			currBucket := objectAttrsResponse{
+				Kind: "storage#bucket",
+				ID:   key.bucket,
+				Name: key.bucket,
+			}
+			if slices.Contains(r.Items, currBucket) {
+				continue
+			}
+			r.Items = append(r.Items, currBucket)
+		}
+	} else if strings.HasPrefix(req.URL.Path, "/b/") && strings.HasSuffix(req.URL.Path, "/o") {
+		// List all objects in a bucket.
+		bucketName := strings.Split(strings.TrimPrefix(req.URL.Path, "/b/"), "/")[0]
+		// "/b/bucketName/o"
+		r = objectIterResponse{
+			Kind:  "storage#objects",
+			Items: []objectAttrsResponse{},
+		}
+		queryPrefix := req.URL.Query().Get("prefix")
+		// find all objects in the server that match the prefix.
+		for key := range gs.objects {
+			if strings.Contains(key.name, queryPrefix) && key.bucket == bucketName {
+				r.Items = append(r.Items, objectAttrsResponse{
+					Kind:   "storage#object",
+					Name:   key.name,
+					Bucket: bucketName,
+					Prefix: queryPrefix,
+				})
+			}
+		}
+	} else {
+		gs.t.Fatalf("unrecognised list endpoint %s", req.URL.Path)
 	}
+
 	j, err := json.Marshal(r)
 	if err != nil {
 		gs.t.Fatalf("failed to marshal json in GCS handleList: %v", err)
