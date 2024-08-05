@@ -47,6 +47,18 @@ There are three high level ways to set up this tool:
 
 By default logs and metrics will be written to STDOUT, but we documented [how to send logs and set up dashboards in GCP](docs/logs_and_monitoring.md).
 
+## Build bulk_fhir_fetch
+
+To build the program from source run the following from the root of the
+repository (note you must have [Go](https://go.dev/dl/) installed):
+
+```sh
+go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go
+```
+
+This will build the `bulk_fhir_fetch` binary and write it out in your current
+directory.
+
 ## bulk_fhir_fetch Configuration Examples
 
 This section will detail common usage patterns for the `bulk_fhir_fetch` command
@@ -144,18 +156,6 @@ tab. For example for version `v0.1.5`:
 ```sh
 git clone --branch v0.1.5 https://github.com/google/bulk_fhir_tools.git
 ```
-
-## Build
-
-To build the program from source run the following from the root of the
-repository (note you must have [Go](https://go.dev/dl/) installed):
-
-```sh
-go build cmd/bulk_fhir_fetch/bulk_fhir_fetch.go
-```
-
-This will build the `bulk_fhir_fetch` binary and write it out in your current
-directory.
 
 ## Example Analytics
 This repository also contains example [analysis notebooks](analytics)
